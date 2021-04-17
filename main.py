@@ -1,4 +1,6 @@
 from __future__ import print_function
+
+import io
 import os.path
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -6,7 +8,7 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 
 # If modifying these scopes, delete the file token.json.
-from googleapiclient.http import MediaFileUpload
+from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 
 SCOPES = ['https://www.googleapis.com/auth/drive']
 
@@ -49,7 +51,27 @@ def main():
         file = service.files().create(body=file_metadata,
                                       media_body=to_upload,
                                       fields='id').execute()
-        print('Created file with id ' + file.get('id'))
+        file_id = file.get('id')
+
+        print('Created file with id ' + file_id)
+
+        # Now pull it back down - query api by file_id:
+        print(f'Fetching file with id {file_id}')
+        request = service.files().get_media(fileId=file_id)
+        file_stream = io.BytesIO()
+        downloader = MediaIoBaseDownload(file_stream, request)
+
+        finishedDownloading = False
+        while finishedDownloading is False:
+            finishedDownloading, done = downloader.next_chunk()
+            print(f'Download {int(finishedDownloading.progress() * 100)} %')
+
+        # File bytes in file_stream; now save to file on os
+        with open(f'DL_{file_name}', 'wb') as local_file:
+            local_file.write(file_stream.getvalue())
+            file_stream.close()
+            local_file.close()
+
     except FileNotFoundError:
         print('Couldn\'t find file ' + file_name)
 
