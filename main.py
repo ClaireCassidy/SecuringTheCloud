@@ -6,10 +6,10 @@ from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
+from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
+from cryptography.fernet import Fernet
 
 # If modifying these scopes, delete the file token.json.
-from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
-
 SCOPES = ['https://www.googleapis.com/auth/drive']
 
 
@@ -42,50 +42,89 @@ def main():
 
     ################## Finish create credentials
 
-    # Perform resumable upload: (could be >5MB)
+    # One-time create of symmetric key for encrypting file up to cloud
+    symmetric_key_cloud = None
 
-    file_name = 'test_upload.txt'
-    file_metadata = {'name': file_name}
+    if os.path.exists('fernet.key') is False:  # file dne yet; create
+        # generate symmetric key for communication with cloud
+        print("Writing New Cloud Symmetric Key ...")
+        symmetric_key_cloud = Fernet.generate_key()
+
+        # save the key
+        with open('fernet.key', 'wb') as key_file:
+            key_file.write(symmetric_key_cloud)
+            key_file.close()
+
+    ################# Finish create symmetric key
+
     try:
-        to_upload = MediaFileUpload(file_name, resumable=True)
-        file = service.files().create(body=file_metadata,
-                                      media_body=to_upload,
-                                      fields='id').execute()
-        file_id = file.get('id')
 
-        print('Created file with id ' + file_id)
+        if symmetric_key_cloud is None:
+            # load symmetric key
+            with open('fernet.key', 'rb') as key_file:
+                symmetric_key_cloud = key_file.read()
 
-        # Now pull it back down - query api by file_id:
-        print(f'Fetching file with id {file_id}')
-        request = service.files().get_media(fileId=file_id)
-        file_stream = io.BytesIO()
-        downloader = MediaIoBaseDownload(file_stream, request)
+        fernet_key = Fernet(symmetric_key_cloud)
 
-        finishedDownloading = False
-        while finishedDownloading is False:
-            finishedDownloading, done = downloader.next_chunk()
-            print(f'Download {int(finishedDownloading.progress() * 100)} %')
+        # Load the file bytes to encrypt
+        with open('encrypt_me.txt', 'rb') as to_encrypt:
+            plaintext = to_encrypt.read()
 
-        # File bytes in file_stream; now save to file on os
-        with open(f'DL_{file_name}', 'wb') as local_file:
-            local_file.write(file_stream.getvalue())
-            file_stream.close()
-            local_file.close()
+        # Encrypt plaintext using cloud symmetric key:
+        ciphertext = fernet_key.encrypt(plaintext)
+        print(f'Plaintext: {plaintext}\nCiphertext: {ciphertext}\nDecrypted: {fernet_key.decrypt(ciphertext)}')
 
+        # with open('encrypted.txt', 'wb') as encrypted:
+        #     encrypted.write(ciphertext)
+        #     encrypted.close()
+        #
+
+        # Perform resumable upload: (could be >5MB)
+
+        file_name = 'test_upload.txt'
+        file_metadata = {'name': file_name}
+        try:
+            to_upload = MediaFileUpload(file_name, resumable=True)
+            file = service.files().create(body=file_metadata,
+                                          media_body=to_upload,
+                                          fields='id').execute()
+            file_id = file.get('id')
+
+            print('Created file with id ' + file_id)
+
+            # Now pull it back down - query api by file_id:
+            print(f'Fetching file with id {file_id}')
+            request = service.files().get_media(fileId=file_id)
+            file_stream = io.BytesIO()
+            downloader = MediaIoBaseDownload(file_stream, request)
+
+            finishedDownloading = False
+            while finishedDownloading is False:
+                finishedDownloading, done = downloader.next_chunk()
+                print(f'Download {int(finishedDownloading.progress() * 100)} %')
+
+            # File bytes in file_stream; now save to file on os
+            with open(f'DL_{file_name}', 'wb') as local_file:
+                local_file.write(file_stream.getvalue())
+                file_stream.close()
+                local_file.close()
+
+        except FileNotFoundError:
+            print('Couldn\'t find file ' + file_name)
+
+        # Call the Drive v3 API
+        results = service.files().list(
+            pageSize=10, fields="nextPageToken, files(id, name)").execute()
+        items = results.get('files', [])
+
+        if not items:
+            print('No files found.')
+        else:
+            print('Files:')
+            for item in items:
+                print(u'{0} ({1})'.format(item['name'], item['id']))
     except FileNotFoundError:
-        print('Couldn\'t find file ' + file_name)
-
-    # Call the Drive v3 API
-    results = service.files().list(
-        pageSize=10, fields="nextPageToken, files(id, name)").execute()
-    items = results.get('files', [])
-
-    if not items:
-        print('No files found.')
-    else:
-        print('Files:')
-        for item in items:
-            print(u'{0} ({1})'.format(item['name'], item['id']))
+        print('Cloud Symmetric Key failed to load :?')
 
 
 if __name__ == '__main__':
