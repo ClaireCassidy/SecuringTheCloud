@@ -6,6 +6,7 @@ from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
+from multiprocessing.connection import Listener
 
 from cryptography.fernet import Fernet
 
@@ -21,40 +22,22 @@ def main():
     symmetric_key_cloud = load_key()
     fernet_key = Fernet(symmetric_key_cloud)
 
-    plaintext = b'howeye'
-    ciphertext = fernet_key.encrypt(plaintext)
-    print(f'Plaintext: {plaintext}\nCiphertext: {ciphertext}\nDecrypted: {fernet_key.decrypt(ciphertext)}')
+    print(f'CloudAccessManager ready to service requests ...')
 
-    with open('cam_encrypted.txt', 'wb') as test_file:
-        test_file.write(ciphertext)
-
-    file_name = 'cam_encrypted.txt'
-    file_metadata = {'name': file_name}
-    try:
-        to_upload = MediaFileUpload(file_name, resumable=True)
-        file = drive_service.files().create(body=file_metadata,
-                                            media_body=to_upload,
-                                            fields='id').execute()
-        file_id = file.get('id')
-
-        print('Created file with id ' + file_id)
-
-        # Now pull it back down - query api by file_id:
-        print(f'Fetching file with id {file_id}')
-        request = drive_service.files().get_media(fileId=file_id)
-        file_stream = io.BytesIO()
-        downloader = MediaIoBaseDownload(file_stream, request)
-
-        finished_downloading = False
-        while finished_downloading is False:
-            finished_downloading, done = downloader.next_chunk()
-            print(f'Download {int(finished_downloading.progress() * 100)} %')
-
-        # file bytes in file_stream, decrypt:
-        decrypted_text = fernet_key.decrypt(file_stream.getvalue())
-        print(f'Calling Decrypt on downloaded ciphertext: {decrypted_text}')
-    except FileNotFoundError:
-        print('Couldn\'t find file ' + file_name)
+    # listen for communication from cloud group client
+    address = ('localhost', 6000)
+    listener = Listener(address, authkey=b'cloud_group')
+    conn = listener.accept()
+    print(f'connection accepted from {listener.last_accepted}')
+    while True:
+        msg = conn.recv()
+        # do something with msg
+        if msg == 'close':
+            conn.close()
+            break
+        else:
+            print(f'Message from [{listener.last_accepted}]: {msg}')
+    listener.close()
 
 
 def perform_cloud_auth():
