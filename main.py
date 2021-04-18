@@ -74,14 +74,13 @@ def main():
         ciphertext = fernet_key.encrypt(plaintext)
         print(f'Plaintext: {plaintext}\nCiphertext: {ciphertext}\nDecrypted: {fernet_key.decrypt(ciphertext)}')
 
-        # with open('encrypted.txt', 'wb') as encrypted:
-        #     encrypted.write(ciphertext)
-        #     encrypted.close()
-        #
+        # Write the ciphertext to a file:
+        with open('ciphertext.txt', 'wb') as ciphertext_file:
+            ciphertext_file.write(ciphertext)
 
+        # Upload ciphertext to cloud
         # Perform resumable upload: (could be >5MB)
-
-        file_name = 'test_upload.txt'
+        file_name = 'ciphertext.txt'
         file_metadata = {'name': file_name}
         try:
             to_upload = MediaFileUpload(file_name, resumable=True)
@@ -103,26 +102,30 @@ def main():
                 finishedDownloading, done = downloader.next_chunk()
                 print(f'Download {int(finishedDownloading.progress() * 100)} %')
 
-            # File bytes in file_stream; now save to file on os
-            with open(f'DL_{file_name}', 'wb') as local_file:
-                local_file.write(file_stream.getvalue())
-                file_stream.close()
-                local_file.close()
+            # file bytes in file_stream, decrypt:
+            decrypted_text = fernet_key.decrypt(file_stream.getvalue())
+            print(f'Calling Decrypt on downloaded ciphertext: {decrypted_text}')
+
+            # # File bytes in file_stream; now save to file on os
+            # with open(f'DL_{file_name}', 'wb') as local_file:
+            #     local_file.write(file_stream.getvalue())
+            #     file_stream.close()
+            #     local_file.close()
 
         except FileNotFoundError:
             print('Couldn\'t find file ' + file_name)
 
-        # Call the Drive v3 API
-        results = service.files().list(
-            pageSize=10, fields="nextPageToken, files(id, name)").execute()
-        items = results.get('files', [])
-
-        if not items:
-            print('No files found.')
-        else:
-            print('Files:')
-            for item in items:
-                print(u'{0} ({1})'.format(item['name'], item['id']))
+        # # Call the Drive v3 API
+        # results = service.files().list(
+        #     pageSize=10, fields="nextPageToken, files(id, name)").execute()
+        # items = results.get('files', [])
+        #
+        # if not items:
+        #     print('No files found.')
+        # else:
+        #     print('Files:')
+        #     for item in items:
+        #         print(u'{0} ({1})'.format(item['name'], item['id']))
     except FileNotFoundError:
         print('Cloud Symmetric Key failed to load :?')
 
