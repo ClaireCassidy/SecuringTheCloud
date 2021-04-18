@@ -30,13 +30,15 @@ def main():
     conn = listener.accept()
     print(f'connection accepted from {listener.last_accepted}')
     while True:
-        msg = conn.recv()
-        # do something with msg
-        if msg == 'close':
+        file_name = conn.recv()
+        if file_name == 'close':
             conn.close()
             break
         else:
-            print(f'Message from [{listener.last_accepted}]: {msg}')
+            print(f'Expecting file from [{listener.last_accepted}]: {file_name}')
+
+            file_bytes = conn.recv()
+            print(f'Received file bytes of \'{file_name}\' from [{listener.last_accepted}]: {file_bytes}')
     listener.close()
 
 
