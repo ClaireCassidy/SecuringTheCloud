@@ -1,11 +1,16 @@
 import os
 import time
+import re
 from multiprocessing.connection import Client
 
 USERS_PATH = r"cam_files\users"
 ADMINS_PATH = r"cam_files\admins"
 USER_PRIVILEGE = 0
 ADMIN_PRIVILEGE = 1
+REGISTER = 'r'
+LOG_IN = 'l'
+REGEX_VALID_USERNAME = '^[A-Za-z0-9_-]*$'
+REGEX_VALID_PASSWORD = r'[A-Za-z0-9@#$%^&+=]{6,}'
 
 def main():
     # address = ('localhost', 6000)
@@ -74,31 +79,82 @@ def prompt_for_login(users, admins):
         print('\n')
 
         privilege_level = None
-        username = input(f'Welcome to SecuringTheCloud. Please log in to proceed.\n--------------- \n Username:\t')
+        option = input(f'Welcome to SecuringTheCloud. [R]egister or [L]og in?\n-----------------\n').lower()
 
-        if username in users:
-            privilege_level = USER_PRIVILEGE
-        elif username in admins:
-            privilege_level = ADMIN_PRIVILEGE
-
-        if privilege_level is not None:
-            password = input(f' Password:\t')
-
-            # get password
-            if privilege_level == USER_PRIVILEGE:
-                expected_pw = get_password(username, USERS_PATH)
-            else:
-                expected_pw = get_password(username, ADMINS_PATH)
-
-            if password == expected_pw:
-                login_success = True
-                return username, privilege_level
-            else:
-                print(f'Incorrect username or password. Please try again.')
+        if option == REGISTER:
+            register_new_user(users + admins)
+        elif option == LOG_IN:
+            print(f'logging in...')
         else:
-            print(f'No user \'{username}\' found. Please try again.')
+            print(f'Not a valid option. Please try again.')
+
+        # if username in users:
+        #     privilege_level = USER_PRIVILEGE
+        # elif username in admins:
+        #     privilege_level = ADMIN_PRIVILEGE
+        #
+        # if privilege_level is not None:
+        #     password = input(f' Password:\t')
+        #
+        #     # get password
+        #     if privilege_level == USER_PRIVILEGE:
+        #         expected_pw = get_password(username, USERS_PATH)
+        #     else:
+        #         expected_pw = get_password(username, ADMINS_PATH)
+        #
+        #     if password == expected_pw:
+        #         login_success = True
+        #         return username, privilege_level
+        #     else:
+        #         print(f'Incorrect username or password. Please try again.')
+        # else:
+        #     print(f'No user \'{username}\' found. Please try again.')
 
     return None, None
+
+def register_new_user(exclusion_list):
+
+    valid_username = False
+    valid_password = False
+
+    while valid_username is False:
+        username = input(f'Preparing to register a new user...\n Username: ').lower()
+
+        if 6 <= len(username) <= 15 and re.match(REGEX_VALID_USERNAME, username):
+            if username in exclusion_list:
+                print(f' Sorry, that username has been taken.\n')
+            else:
+                valid_username = True
+        else:
+            print(f' Please enter a username between 6 and 15 characters containing only letters, numbers, -, and/or _\n')
+
+    while valid_password is False:
+        password = input(' Password: ')
+
+        if 6 <= len(password) <= 15 and re.match(REGEX_VALID_PASSWORD, password):
+            valid_password = True
+        else:
+            print(f' Please enter a password between 6 and 15 characters containing only letters, numbers, '
+                  f'and/or the following special characters: @ # $ % ^ & + =\n')
+
+    # have valid username and pw; proceed to register
+    # -> Generate new symmetric key for user:
+    
+
+    # -> create new record for user in cam_files:
+    cur_dir = os.path.dirname(os.path.realpath(__file__))
+    full_path_users = os.path.join(cur_dir, USERS_PATH)
+    path_to_new_file = os.path.join(full_path_users, f'{username}.txt')
+
+    with open(path_to_new_file, 'w') as new_user_file:
+        new_user_file.write(f'{password}\n')
+        new_user_file.close()
+
+    print(f'Registered user \'{username}\' successfully. To finish registration, please contact a system administrator '
+          f'to obtain your key and proceed to log in.')
+
+    return True
+
 
 
 def get_password(username, path):
