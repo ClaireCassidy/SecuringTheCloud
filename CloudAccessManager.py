@@ -28,13 +28,23 @@ OK = "ok"                       # request received, proceed
 SUCCESS = "success"             # request completed successfully
 FAILURE = "failure"             # something went wrong
 
+# dynamic data structure for keeping a list of usernames in memory
+user_usernames = []
+admin_usernames = []
+
 def main():
+    global user_usernames
+    global admin_usernames
+
     # authorise self to upload/download from associated GDrive account
     drive_service = perform_cloud_auth()
 
     # get the Fernet key for communication between program and cloud
     symmetric_key_cloud = load_key()
     fernet_key = Fernet(symmetric_key_cloud)
+
+    # initialise list of usernames (one time file-read)
+    user_usernames, admin_usernames = load_usernames(USERS_PATH, ADMINS_PATH)
 
     print(f'CloudAccessManager ready to service requests ...')
 
@@ -142,10 +152,10 @@ def load_usernames(users_path, admins_path):
     return users, admins
 
 def send_user_list(conn):
-    user_list, admin_list = load_usernames(USERS_PATH, ADMINS_PATH)
-    encoded_list = " ".join(user_list)
+    # user_list, admin_list = load_usernames(USERS_PATH, ADMINS_PATH)
+    encoded_list = " ".join(user_usernames)
     encoded_list += "|"
-    encoded_list += " ".join(admin_list)
+    encoded_list += " ".join(admin_usernames)
     conn.send(encoded_list)
 
 def process_registration(conn):
@@ -170,6 +180,9 @@ def process_registration(conn):
     with open(path_to_new_file, 'w') as new_user_file:
         new_user_file.write(f'{password}\n{users_symm_key}')
         new_user_file.close()
+
+    # add to dynamic data structure representing usernames:
+    user_usernames.append(username)
 
     conn.send(SUCCESS)
     print(f'Successfully created registration record for \'{username}\'')

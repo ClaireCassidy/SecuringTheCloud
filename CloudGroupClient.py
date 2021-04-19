@@ -22,8 +22,13 @@ OK = "ok"
 SUCCESS = "success"             # request completed successfully
 FAILURE = "failure"             # something went wrong
 
+# dynamic data structure for keeping a list of usernames in memory
+users = []
+admins = []
 
 def main():
+    global users, admins
+
     address = ('localhost', 6000)
     conn = Client(address, authkey=b'cloud_group')
 
@@ -80,6 +85,7 @@ def main():
         #
         # print(f'\n')
 
+
 def extract_usernames(user_list_string):
     # divide into users and admins
     split_list = user_list_string.split("|")
@@ -104,8 +110,10 @@ def prompt_for_login(users, admins, conn):
 
             username, pw = register_new_user(users + admins)
             conn.send(REQ_REGISTER)
+
             if conn.recv() == OK:
                 conn.send(f'{username}|{pw}')
+                users.append(username)
             else:
                 raise Exception("Unexpected communication protocol error")
 
@@ -116,7 +124,8 @@ def prompt_for_login(users, admins, conn):
                 raise Exception("Unexpected communication protocol error")
 
         elif option == LOG_IN:
-            print(f'logging in...')
+            # print(f'logging in...')
+            pass
 
         elif option == QUIT:
             conn.send(REQ_CLOSE)
