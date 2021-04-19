@@ -3,25 +3,52 @@ import time
 import re
 from multiprocessing.connection import Client
 
-USERS_PATH = r"cam_files\users"
-ADMINS_PATH = r"cam_files\admins"
 USER_PRIVILEGE = 0
 ADMIN_PRIVILEGE = 1
+
 REGISTER = 'r'
 LOG_IN = 'l'
+QUIT = 'q'
+
 REGEX_VALID_USERNAME = '^[A-Za-z0-9_-]*$'
 REGEX_VALID_PASSWORD = r'[A-Za-z0-9@#$%^&+=]{6,}'
 
+# Communication protocol between CAM and Client:
+HELLO = "hello"
+REQ_USER_LIST = "userlist"
+REQ_REGISTER = "register"
+REQ_CLOSE = "close"
+OK = "ok"
+SUCCESS = "success"             # request completed successfully
+FAILURE = "failure"             # something went wrong
+
+
 def main():
-    # address = ('localhost', 6000)
-    # conn = Client(address, authkey=b'cloud_group')
+    address = ('localhost', 6000)
+    conn = Client(address, authkey=b'cloud_group')
 
-    while True:
-        users, admins = load_usernames(USERS_PATH, ADMINS_PATH)
-        username, privilege_lvl = prompt_for_login(users, admins)
+    # initialise communication
+    conn.send(HELLO)
+    res = conn.recv()
 
-        print(f'Welcome {username}')
+    if res == HELLO:
+        # begin registration/login flow:
+        conn.send(REQ_USER_LIST)
+        user_list_string = conn.recv()
+        users, admins = extract_usernames(user_list_string)
 
+        username, privilege_lvl = prompt_for_login(users, admins, conn)
+        # users = user_list[0]
+        # admins = user_list[1]
+        # print(users)
+        # print(admins)
+
+        # users, admins = load_usernames(USERS_PATH, ADMINS_PATH)
+        # username, privilege_lvl = prompt_for_login(users, admins)
+        #
+        # print(f'Welcome {username}')
+    else:
+        print(f'Unexpected error in communication protocol')
 
         # # msg = input('Send a message to CAM (\'close\' to terminate): ')
         # filename = input('Hello user1. Please give the name of the file you wish to encrypt: ')
@@ -53,24 +80,16 @@ def main():
         #
         # print(f'\n')
 
+def extract_usernames(user_list_string):
+    # divide into users and admins
+    split_list = user_list_string.split("|")
+    user_usernames = split_list[0].split(" ")
+    admin_usernames = split_list[1].split(" ")
 
-def load_usernames(users_path, admins_path):
-
-    users = []
-    admins = []
-
-    cur_dir = os.path.dirname(os.path.realpath(__file__))
-
-    full_path_users = os.path.join(cur_dir, users_path)
-    users = [os.path.splitext(file)[0] for file in os.listdir(full_path_users)]
-
-    full_path_admins = os.path.join(cur_dir, admins_path)
-    admins = [os.path.splitext(file)[0] for file in os.listdir(full_path_admins)]
-
-    return users, admins
+    return user_usernames, admin_usernames
 
 
-def prompt_for_login(users, admins):
+def prompt_for_login(users, admins, conn):
 
     login_success = False
 
@@ -79,12 +98,34 @@ def prompt_for_login(users, admins):
         print('\n')
 
         privilege_level = None
-        option = input(f'Welcome to SecuringTheCloud. [R]egister or [L]og in?\n-----------------\n').lower()
+        option = input(f'Welcome to SecuringTheCloud. [R]egister or [L]og in? ([Q] to exit)\n-----------------\n').lower()
 
         if option == REGISTER:
-            register_new_user(users + admins)
+
+            username, pw = register_new_user(users + admins)
+            conn.send(REQ_REGISTER)
+            if conn.recv() == OK:
+                conn.send(f'{username}|{pw}')
+            else:
+                raise Exception("Unexpected communication protocol error")
+
+            if conn.recv() == SUCCESS:
+                print(f'Registered user \'{username}\' successfully. To finish registration, please contact a '
+                      f'system administrator to obtain your key and proceed to log in.')
+            else:
+                raise Exception("Unexpected communication protocol error")
+
         elif option == LOG_IN:
             print(f'logging in...')
+
+        elif option == QUIT:
+            conn.send(REQ_CLOSE)
+            if conn.recv() == OK:
+                print(f'Goodbye!')
+                break
+            else:
+                raise Exception("Unexpected communication protocol error")
+
         else:
             print(f'Not a valid option. Please try again.')
 
@@ -137,23 +178,7 @@ def register_new_user(exclusion_list):
             print(f' Please enter a password between 6 and 15 characters containing only letters, numbers, '
                   f'and/or the following special characters: @ # $ % ^ & + =\n')
 
-    # have valid username and pw; proceed to register
-    # -> Generate new symmetric key for user:
-    
-
-    # -> create new record for user in cam_files:
-    cur_dir = os.path.dirname(os.path.realpath(__file__))
-    full_path_users = os.path.join(cur_dir, USERS_PATH)
-    path_to_new_file = os.path.join(full_path_users, f'{username}.txt')
-
-    with open(path_to_new_file, 'w') as new_user_file:
-        new_user_file.write(f'{password}\n')
-        new_user_file.close()
-
-    print(f'Registered user \'{username}\' successfully. To finish registration, please contact a system administrator '
-          f'to obtain your key and proceed to log in.')
-
-    return True
+    return username, password
 
 
 
