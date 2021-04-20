@@ -13,8 +13,12 @@ from cryptography.fernet import Fernet
 # What GDrive permissions we're requiring:
 SCOPES = ['https://www.googleapis.com/auth/drive']
 
+# Constants
 REGISTER = 0
 LOG_IN = 1
+
+CLOUD = 0
+CLIENT = 1
 
 USERS_PATH = r"cam_files\users"
 ADMINS_PATH = r"cam_files\admins"
@@ -32,6 +36,7 @@ FAILURE = "failure"             # something went wrong
 user_usernames = []
 admin_usernames = []
 
+
 def main():
     global user_usernames
     global admin_usernames
@@ -40,8 +45,9 @@ def main():
     drive_service = perform_cloud_auth()
 
     # get the Fernet key for communication between program and cloud
-    symmetric_key_cloud = load_key()
-    fernet_key = Fernet(symmetric_key_cloud)
+    symmetric_key_cloud = Fernet(load_key(CLOUD))
+    # get the Fernet key for communication between the program and client
+    symmetric_key_client = Fernet(load_key(CLIENT))
 
     # initialise list of usernames (one time file-read)
     user_usernames, admin_usernames = load_usernames(USERS_PATH, ADMINS_PATH)
@@ -115,26 +121,43 @@ def perform_cloud_auth():
     return build('drive', 'v3', credentials=creds)
 
 
-def load_key():
-    # Either fetch saved fernet key from previous session or generate if DNE
-    symmetric_key_cloud = None
+def load_key(type):
 
-    if os.path.exists('fernet.key') is False:  # key dne yet; create
-        # generate symmetric key for communication with cloud
-        print("Writing New Cloud Symmetric Key ...")
-        symmetric_key_cloud = Fernet.generate_key()
+    cwd = os.getcwd()
+    key = None
+
+    # Either fetch saved fernet key from previous session or generate if DNE
+    if type == CLOUD:
+        path_to_key = f'{cwd}\\cam_files\\fernet_cloud.key'
+    elif type == CLIENT:
+        path_to_key = f'{cwd}\\cam_files\\fernet_client.key'
+
+    if os.path.exists(path_to_key) is False:  # key dne yet; create
+        # generate symmetric key for communication with cloud/client
+        print(f'Writing New {"Cloud" if type == CLOUD else "Client"} Symmetric Key ...')
+        key = Fernet.generate_key()
 
         # save the key
-        with open('fernet.key', 'wb') as key_file:
-            key_file.write(symmetric_key_cloud)
+        with open(path_to_key, 'wb') as key_file:
+            key_file.write(key)
             key_file.close()
 
-    if symmetric_key_cloud is None:  # will be none if it already existed; load
-        # load symmetric key
-        with open('fernet.key', 'rb') as key_file:
-            symmetric_key_cloud = key_file.read()
+        # Save an additional copy for the client to use
+        if type == CLIENT:
+            path_to_client = f'{cwd}\\client_files\\fernet_client.key'
 
-    return symmetric_key_cloud
+            # save the key
+            with open(path_to_client, 'wb') as key_file:
+                key_file.write(key)
+                key_file.close()
+
+    if key is None:  # will be none if it already existed; load
+        # load symmetric key
+        with open(path_to_key, 'rb') as key_file:
+            key = key_file.read()
+
+    return key
+
 
 def load_usernames(users_path, admins_path):
 
@@ -151,12 +174,14 @@ def load_usernames(users_path, admins_path):
 
     return users, admins
 
+
 def send_user_list(conn):
     # user_list, admin_list = load_usernames(USERS_PATH, ADMINS_PATH)
     encoded_list = " ".join(user_usernames)
     encoded_list += "|"
     encoded_list += " ".join(admin_usernames)
     conn.send(encoded_list)
+
 
 def process_registration(conn):
     conn.send(OK)
