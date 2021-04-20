@@ -1,7 +1,9 @@
 import os
 import time
 import re
+
 from multiprocessing.connection import Client
+from cryptography.fernet import Fernet
 
 USER_PRIVILEGE = 0
 ADMIN_PRIVILEGE = 1
@@ -26,20 +28,26 @@ FAILURE = "failure"             # something went wrong
 users = []
 admins = []
 
+symmetric_key_cam = None
+
+
 def main():
-    global users, admins
+    global users, admins, symmetric_key_cam
+
+    # load key for comms with CAM
+    load_symm_key()
 
     address = ('localhost', 6000)
     conn = Client(address, authkey=b'cloud_group')
 
-    # initialise communication
-    conn.send(HELLO)
-    res = conn.recv()
+    # initialise communication with CAM
+    encrypt_and_send(conn, HELLO)
+    res = decrypt_from_src(conn)
 
     if res == HELLO:
         # begin registration/login flow:
-        conn.send(REQ_USER_LIST)
-        user_list_string = conn.recv()
+        encrypt_and_send(conn, REQ_USER_LIST)
+        user_list_string = decrypt_from_src(conn)
         users, admins = extract_usernames(user_list_string)
 
         username, privilege_lvl = prompt_for_login(users, admins, conn)
@@ -206,6 +214,36 @@ def get_password(username, path):
                 return user_file_contents[0]
 
     return None
+
+
+def load_symm_key():
+    global symmetric_key_cam
+
+    cwd = os.getcwd()
+    path_to_key = f'{cwd}\\client_files\\fernet_client.key'
+
+    with open(path_to_key, 'rb') as key_file:
+        symmetric_key_cam = key_file.read()
+        key_file.close()
+
+    symmetric_key_cam = Fernet(symmetric_key_cam)
+
+
+# either encrypts a message and sends it using the given connection object
+def encrypt_and_send(conn, msg):
+    msg_bytes = str.encode(msg)
+    ciphertext = symmetric_key_cam.encrypt(msg_bytes)
+    print(f'Sending {msg}; ciphertext: {ciphertext}')
+    conn.send(ciphertext)
+
+
+# gets the next msg from a connection object, decrypts using the key and returns the plaintext
+def decrypt_from_src(conn):
+    time.sleep(0.2)
+    ciphertext = conn.recv()
+    plaintext = symmetric_key_cam.decrypt(ciphertext).decode("utf-8")
+    print(f'Received {plaintext}; ciphertext: {ciphertext}')
+    return plaintext
 
 
 if __name__ == '__main__':

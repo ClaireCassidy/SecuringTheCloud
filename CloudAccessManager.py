@@ -20,6 +20,9 @@ LOG_IN = 1
 CLOUD = 0
 CLIENT = 1
 
+ENCRYPT = 0
+DECRYPT = 1
+
 USERS_PATH = r"cam_files\users"
 ADMINS_PATH = r"cam_files\admins"
 
@@ -36,10 +39,12 @@ FAILURE = "failure"             # something went wrong
 user_usernames = []
 admin_usernames = []
 
+symmetric_key_cloud = None
+symmetric_key_client = None
+
 
 def main():
-    global user_usernames
-    global admin_usernames
+    global user_usernames, admin_usernames, symmetric_key_client, symmetric_key_cloud
 
     # authorise self to upload/download from associated GDrive account
     drive_service = perform_cloud_auth()
@@ -64,22 +69,28 @@ def main():
 
     # receive messages from cloud group client
     while True:
-        msg = conn.recv()
+        msg = decrypt_from_src(conn, symmetric_key_client)
+        print(msg)
         if msg == HELLO:  # communication established
-            conn.send(HELLO)
+            print('msg was hello')
+            # conn.send(HELLO)
+            encrypt_and_send(conn, HELLO, symmetric_key_client)
 
             close = False
 
             while close is False:
-                req = conn.recv()
+                req = decrypt_from_src(conn, symmetric_key_client)
                 if req == REQ_USER_LIST:
                     send_user_list(conn)
                 elif req == REQ_REGISTER:
                     process_registration(conn)
                 elif req == REQ_CLOSE:
-                    conn.send(OK)
+                    # conn.send(OK)
+                    encrypt_and_send(conn, OK, symmetric_key_client)
                     print(f'Closing connection ... ')
                     close = True
+        else:
+            print("msg was not hello")
 
         conn.close()
         break
@@ -180,14 +191,15 @@ def send_user_list(conn):
     encoded_list = " ".join(user_usernames)
     encoded_list += "|"
     encoded_list += " ".join(admin_usernames)
-    conn.send(encoded_list)
+    # conn.send(encoded_list)
+    encrypt_and_send(conn, encoded_list, symmetric_key_client)
 
 
 def process_registration(conn):
-    conn.send(OK)
+    encrypt_and_send(conn, OK, symmetric_key_client)
 
     # TODO: ENCRYPT ON CLIENT SIDE, DECRYPT HERE
-    registration_details = conn.recv()  # in form "username|password"
+    registration_details = decrypt_from_src(conn, symmetric_key_client)  # in form "username|password"
     registration_details = registration_details.split("|")
     username = registration_details[0]
     password = registration_details[1]
@@ -209,16 +221,30 @@ def process_registration(conn):
     # add to dynamic data structure representing usernames:
     user_usernames.append(username)
 
-    conn.send(SUCCESS)
+    # conn.send(SUCCESS)
+    encrypt_and_send(conn, SUCCESS, symmetric_key_client)
     print(f'Successfully created registration record for \'{username}\'')
+
+
+# either encrypts a message given a fernet key and sends it using the given connection object
+def encrypt_and_send(conn, msg, fernet_key):
+    msg_bytes = str.encode(msg)
+    ciphertext = fernet_key.encrypt(msg_bytes)
+    print(f'Sending {msg}; ciphertext: {ciphertext}')
+    conn.send(ciphertext)
+
+
+# gets the next msg from a connection object, decrypts using the key and returns the plaintext
+def decrypt_from_src(conn, fernet_key):
+    ciphertext = conn.recv()
+    plaintext = fernet_key.decrypt(ciphertext).decode("utf-8")
+    print(f'Received {plaintext}; ciphertext: {ciphertext}')
+    return plaintext
 
 
 def service_login(conn):
     # get whether the client is registering or logging in
     service_type = None
-
-
-
 
 
 if __name__ == '__main__':
