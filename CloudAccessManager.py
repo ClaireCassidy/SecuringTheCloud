@@ -60,9 +60,34 @@ def main():
     # get the Fernet key for communication between the program and client
     symmetric_key_client = Fernet(load_key(CLIENT))
 
+    # @todo remove
+    # some test files:
+    file_name = 'encrypt_me.txt'
+
+    with open(file_name, 'rb') as file:
+        file_bytes = file.read()
+
+    encrypted_bytes = symmetric_key_cloud.encrypt(file_bytes)
+
+    file_name = 'ciphertext.txt'
+    with open(file_name, 'wb') as file:
+        file.write(encrypted_bytes)
+        file.close()
+
+    file_metadata = {'name': file_name}
+
+    to_upload = MediaFileUpload(file_name, resumable=True)
+    file = drive_service.files().create(body=file_metadata,
+                                  media_body=to_upload,
+                                  fields='id').execute()
+    file_id = file.get('id')
+
+    print('Created file with id ' + file_id)
+
     # initialise list of usernames (one time file-read)
     user_usernames, admin_usernames = load_usernames(USERS_PATH, ADMINS_PATH)
-    cloud_filenames = load_cloud_file_list()
+    # initialise list of gdrive files
+    load_cloud_file_list()
 
     print(f'CloudAccessManager ready to service requests ...')
 
@@ -290,13 +315,29 @@ def process_login(conn):
 
 
 def process_download(conn):
+    global cloud_filenames
+
     encrypt_and_send(conn, OK, symmetric_key_client)
 
     target_file = decrypt_from_src(conn, symmetric_key_client)
     print(target_file)
 
     if target_file in cloud_filenames:
-        pass
+        # query Gdrive for file
+        request = drive_service.files().get_media(fileId=cloud_filenames[target_file])
+
+        file_handler = io.BytesIO()
+        downloader = MediaIoBaseDownload(file_handler, request)
+        done = False
+        while done is False:
+            status, done = downloader.next_chunk()
+            print(f'Fetching ... {int(status.progress() * 100)}%.')
+
+        # file bytes in file_handler; will have been encrypted with cloud symm key
+        #   decrypt; re-encrypt with client symm key and send
+        decrypted_bytes = symmetric_key_cloud.decrypt(file_handler.getvalue())
+        encrypt_and_send(conn, decrypted_bytes, symmetric_key_client)
+
     else:
         encrypt_and_send(conn, FAILURE, symmetric_key_client)
 
