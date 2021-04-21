@@ -12,6 +12,7 @@ from cryptography.fernet import Fernet
 
 # What GDrive permissions we're requiring:
 SCOPES = ['https://www.googleapis.com/auth/drive']
+drive_service = None
 
 # Constants
 REGISTER = 0
@@ -41,13 +42,15 @@ FAILURE = "failure"             # something went wrong
 # dynamic data structure for keeping a list of usernames in memory
 user_usernames = []
 admin_usernames = []
+cloud_filenames = {}
 
 symmetric_key_cloud = None
 symmetric_key_client = None
 
 
 def main():
-    global user_usernames, admin_usernames, symmetric_key_client, symmetric_key_cloud
+    global user_usernames, admin_usernames, symmetric_key_client, \
+        symmetric_key_cloud, drive_service, cloud_filenames
 
     # authorise self to upload/download from associated GDrive account
     drive_service = perform_cloud_auth()
@@ -59,6 +62,7 @@ def main():
 
     # initialise list of usernames (one time file-read)
     user_usernames, admin_usernames = load_usernames(USERS_PATH, ADMINS_PATH)
+    cloud_filenames = load_cloud_file_list()
 
     print(f'CloudAccessManager ready to service requests ...')
 
@@ -191,6 +195,26 @@ def load_usernames(users_path, admins_path):
     return users, admins
 
 
+def load_cloud_file_list():
+    global cloud_filenames
+
+    results = drive_service.files().list().execute()
+    items = results.get('files', [])
+
+    if not items:
+        print('No files found.')
+    else:
+        print('Files:')
+        for item in items:
+            print(u'{0} ({1})'.format(item['name'], item['id']))
+
+    # List of filename : id pairs
+    for item in items:
+        cloud_filenames[item['name']] = item['id']
+
+    print(cloud_filenames)
+
+
 def send_user_list(conn):
     # user_list, admin_list = load_usernames(USERS_PATH, ADMINS_PATH)
     encoded_list = " ".join(user_usernames)
@@ -271,14 +295,10 @@ def process_download(conn):
     target_file = decrypt_from_src(conn, symmetric_key_client)
     print(target_file)
 
-    #@todo replace sample file with actual logic
-    cur_dir = os.path.dirname(os.path.realpath(__file__))
-    full_path_users = os.path.join(cur_dir, USERS_PATH)
-    path_user_record = os.path.join(full_path_users, f'claire.txt')
-
-    with open(path_user_record, 'rb') as user_file:
-        file_bytes = user_file.read()
-        encrypt_and_send(conn, file_bytes, symmetric_key_client)
+    if target_file in cloud_filenames:
+        pass
+    else:
+        encrypt_and_send(conn, FAILURE, symmetric_key_client)
 
 
 # either encrypts a message given a fernet key and sends it using the given connection object
