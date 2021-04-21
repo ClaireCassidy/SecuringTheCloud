@@ -31,6 +31,7 @@ HELLO = "hello"
 REQ_USER_LIST = "userlist"
 REQ_REGISTER = "register"
 REQ_CLOSE = "close"
+REQ_LOGIN = "login"
 OK = "ok"                       # request received, proceed
 SUCCESS = "success"             # request completed successfully
 FAILURE = "failure"             # something went wrong
@@ -84,13 +85,13 @@ def main():
                     send_user_list(conn)
                 elif req == REQ_REGISTER:
                     process_registration(conn)
+                elif req == REQ_LOGIN:
+                    process_login(conn)
                 elif req == REQ_CLOSE:
                     # conn.send(OK)
                     encrypt_and_send(conn, OK, symmetric_key_client)
                     print(f'Closing connection ... ')
                     close = True
-        else:
-            print("msg was not hello")
 
         conn.close()
         break
@@ -226,11 +227,45 @@ def process_registration(conn):
     print(f'Successfully created registration record for \'{username}\'')
 
 
+def process_login(conn):
+    # acknowledge login request
+    encrypt_and_send(conn, OK, symmetric_key_client)
+
+    login_details = decrypt_from_src(conn, symmetric_key_client)  # in form '[username]|[password]'
+    login_details = login_details.split("|")
+    print(f'Login Details: {login_details}')
+    username = login_details[0]
+    password = login_details[1]
+
+    if username in user_usernames or username in admin_usernames:
+        # get user's password from storage
+        cur_dir = os.path.dirname(os.path.realpath(__file__))
+        full_path_users = os.path.join(cur_dir, USERS_PATH)
+        print(full_path_users)
+        path_user_record = os.path.join(full_path_users, f'{username}.txt')
+
+        print(path_user_record)
+
+        with open(path_user_record, 'rb') as user_file:
+            # receive string representation from saved bytes
+            true_password = ''.join(user_file.readline().decode('utf-8').split())
+
+        # if passed pw matches registration pw
+        if password == true_password:
+            encrypt_and_send(conn, SUCCESS, symmetric_key_client)
+        else:
+            encrypt_and_send(conn, FAILURE, symmetric_key_client)
+
+    else:
+        # user dne
+        encrypt_and_send(conn, FAILURE, symmetric_key_client)
+
+
 # either encrypts a message given a fernet key and sends it using the given connection object
 def encrypt_and_send(conn, msg, fernet_key):
     msg_bytes = str.encode(msg)
     ciphertext = fernet_key.encrypt(msg_bytes)
-    print(f'Sending {msg}; ciphertext: {ciphertext}')
+    print(f'\tSending {msg}; ciphertext: {ciphertext}')
     conn.send(ciphertext)
 
 
@@ -238,7 +273,7 @@ def encrypt_and_send(conn, msg, fernet_key):
 def decrypt_from_src(conn, fernet_key):
     ciphertext = conn.recv()
     plaintext = fernet_key.decrypt(ciphertext).decode("utf-8")
-    print(f'Received {plaintext}; ciphertext: {ciphertext}')
+    print(f'\tReceived {plaintext}; ciphertext: {ciphertext}')
     return plaintext
 
 

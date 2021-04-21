@@ -12,6 +12,8 @@ REGISTER = 'r'
 LOG_IN = 'l'
 QUIT = 'q'
 
+PROTOCOL_EX = "Unexpected communication protocol error"
+
 REGEX_VALID_USERNAME = '^[A-Za-z0-9_-]*$'
 REGEX_VALID_PASSWORD = r'[A-Za-z0-9@#$%^&+=]{6,}'
 
@@ -20,6 +22,7 @@ HELLO = "hello"
 REQ_USER_LIST = "userlist"
 REQ_REGISTER = "register"
 REQ_CLOSE = "close"
+REQ_LOGIN = "login"
 OK = "ok"
 SUCCESS = "success"             # request completed successfully
 FAILURE = "failure"             # something went wrong
@@ -117,31 +120,35 @@ def prompt_for_login(users, admins, conn):
         if option == REGISTER:
 
             username, pw = register_new_user(users + admins)
-            conn.send(REQ_REGISTER)
+            if username is not None:
+                encrypt_and_send(conn, REQ_REGISTER)
 
-            if conn.recv() == OK:
-                conn.send(f'{username}|{pw}')
-                users.append(username)
-            else:
-                raise Exception("Unexpected communication protocol error")
+                res = decrypt_from_src(conn)
+                if res == OK:
+                    encrypt_and_send(conn, f'{username}|{pw}')
+                    users.append(username)
+                else:
+                    raise Exception(PROTOCOL_EX)
 
-            if conn.recv() == SUCCESS:
-                print(f'Registered user \'{username}\' successfully. To finish registration, please contact a '
-                      f'system administrator to obtain your key and proceed to log in.')
-            else:
-                raise Exception("Unexpected communication protocol error")
+                res = decrypt_from_src(conn)
+                if res == SUCCESS:
+                    print(f'Registered user \'{username}\' successfully. To finish registration, please contact a '
+                          f'system administrator to obtain your key and proceed to log in.')
+                else:
+                    raise Exception(PROTOCOL_EX)
 
         elif option == LOG_IN:
-            # print(f'logging in...')
-            pass
+            handle_log_in(conn)
 
         elif option == QUIT:
-            conn.send(REQ_CLOSE)
-            if conn.recv() == OK:
+            encrypt_and_send(conn, REQ_CLOSE)
+
+            res = decrypt_from_src(conn)
+            if res == OK:
                 print(f'Goodbye!')
                 break
             else:
-                raise Exception("Unexpected communication protocol error")
+                raise Exception(PROTOCOL_EX)
 
         else:
             print(f'Not a valid option. Please try again.')
@@ -170,15 +177,20 @@ def prompt_for_login(users, admins, conn):
 
     return None, None
 
+
 def register_new_user(exclusion_list):
 
     valid_username = False
     valid_password = False
+    go_back = False
 
     while valid_username is False:
-        username = input(f'Preparing to register a new user...\n Username: ').lower()
+        username = input(f'Preparing to register a new user... ([B] to go back)\n Username: ').lower()
 
-        if 6 <= len(username) <= 15 and re.match(REGEX_VALID_USERNAME, username):
+        if username == 'b':
+            go_back = True
+            break
+        elif 6 <= len(username) <= 15 and re.match(REGEX_VALID_USERNAME, username):
             if username in exclusion_list:
                 print(f' Sorry, that username has been taken.\n')
             else:
@@ -186,16 +198,55 @@ def register_new_user(exclusion_list):
         else:
             print(f' Please enter a username between 6 and 15 characters containing only letters, numbers, -, and/or _\n')
 
-    while valid_password is False:
-        password = input(' Password: ')
+    if go_back is False:
+        while valid_password is False:
+            password = input(' Password: ')
 
-        if 6 <= len(password) <= 15 and re.match(REGEX_VALID_PASSWORD, password):
-            valid_password = True
-        else:
-            print(f' Please enter a password between 6 and 15 characters containing only letters, numbers, '
-                  f'and/or the following special characters: @ # $ % ^ & + =\n')
+            if 6 <= len(password) <= 15 and re.match(REGEX_VALID_PASSWORD, password):
+                valid_password = True
+            else:
+                print(f' Please enter a password between 6 and 15 characters containing only letters, numbers, '
+                      f'and/or the following special characters: @ # $ % ^ & + =\n')
 
     return username, password
+
+
+def handle_log_in(conn):
+    go_back = False
+
+    while go_back is False:
+
+        print(f'\nEnter your login details ([B] to go back)')
+
+        username = input(f' Username: ').lower()
+        if username == 'b':
+            break
+
+        password = input(f' Password: ')
+
+        # send to CAM to authenticate:
+        # send request to log in
+        encrypt_and_send(conn, REQ_LOGIN)
+
+        # await OK from CAM
+        res = decrypt_from_src(conn)
+        if res == OK:
+            # proceed to send login details for verification
+            encrypt_and_send(conn, f'{username}|{password}')
+
+            # response is either SUCCESS if verifiable or FAIL if not
+            res = decrypt_from_src(conn)
+            if res == SUCCESS:
+                # successful login
+                pass
+            elif res == FAILURE:
+                # unsuccessful login; repeat loop
+                print(f'Login unsuccessful. Please try again.')
+            else:
+                raise Exception(PROTOCOL_EX)
+
+        else:
+            raise Exception(PROTOCOL_EX)
 
 
 
@@ -233,7 +284,7 @@ def load_symm_key():
 def encrypt_and_send(conn, msg):
     msg_bytes = str.encode(msg)
     ciphertext = symmetric_key_cam.encrypt(msg_bytes)
-    print(f'Sending {msg}; ciphertext: {ciphertext}')
+    print(f'\tSending {msg}; ciphertext: {ciphertext}')
     conn.send(ciphertext)
 
 
@@ -242,7 +293,7 @@ def decrypt_from_src(conn):
     time.sleep(0.2)
     ciphertext = conn.recv()
     plaintext = symmetric_key_cam.decrypt(ciphertext).decode("utf-8")
-    print(f'Received {plaintext}; ciphertext: {ciphertext}')
+    print(f'\tReceived {plaintext}; ciphertext: {ciphertext}')
     return plaintext
 
 
