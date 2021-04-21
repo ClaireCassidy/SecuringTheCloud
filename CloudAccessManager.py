@@ -32,7 +32,9 @@ REQ_USER_LIST = "userlist"
 REQ_REGISTER = "register"
 REQ_CLOSE = "close"
 REQ_LOGIN = "login"
-OK = "ok"                       # request received, proceed
+REQ_DOWNLOAD = "download"
+REQ_CLOUD_FILES = "files"
+OK = "ok"
 SUCCESS = "success"             # request completed successfully
 FAILURE = "failure"             # something went wrong
 
@@ -87,6 +89,8 @@ def main():
                     process_registration(conn)
                 elif req == REQ_LOGIN:
                     process_login(conn)
+                elif req == REQ_DOWNLOAD:
+                    process_download(conn)
                 elif req == REQ_CLOSE:
                     # conn.send(OK)
                     encrypt_and_send(conn, OK, symmetric_key_client)
@@ -261,10 +265,27 @@ def process_login(conn):
         encrypt_and_send(conn, FAILURE, symmetric_key_client)
 
 
+def process_download(conn):
+    encrypt_and_send(conn, OK, symmetric_key_client)
+
+    target_file = decrypt_from_src(conn, symmetric_key_client)
+    print(target_file)
+
+    #@todo replace sample file with actual logic
+    cur_dir = os.path.dirname(os.path.realpath(__file__))
+    full_path_users = os.path.join(cur_dir, USERS_PATH)
+    path_user_record = os.path.join(full_path_users, f'claire.txt')
+
+    with open(path_user_record, 'rb') as user_file:
+        file_bytes = user_file.read()
+        encrypt_and_send(conn, file_bytes, symmetric_key_client)
+
+
 # either encrypts a message given a fernet key and sends it using the given connection object
 def encrypt_and_send(conn, msg, fernet_key):
-    msg_bytes = str.encode(msg)
-    ciphertext = fernet_key.encrypt(msg_bytes)
+    if isinstance(msg, str):
+        msg = str.encode(msg)
+    ciphertext = fernet_key.encrypt(msg)
     print(f'\tSending {msg}; ciphertext: {ciphertext}')
     conn.send(ciphertext)
 

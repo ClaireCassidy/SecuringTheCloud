@@ -23,6 +23,8 @@ REQ_USER_LIST = "userlist"
 REQ_REGISTER = "register"
 REQ_CLOSE = "close"
 REQ_LOGIN = "login"
+REQ_DOWNLOAD = "download"
+REQ_CLOUD_FILES = "files"
 OK = "ok"
 SUCCESS = "success"             # request completed successfully
 FAILURE = "failure"             # something went wrong
@@ -237,8 +239,17 @@ def handle_log_in(conn):
             # response is either SUCCESS if verifiable or FAIL if not
             res = decrypt_from_src(conn)
             if res == SUCCESS:
+
                 # successful login
-                pass
+                print(f'\nLogin Successful. Welcome {username}.')
+
+                if username in users:
+                    handle_user(conn, username)
+                elif username in admins:
+                    handle_admin(conn)
+                else:
+                    raise Exception(f'Something\'s gone terribly wrong :(')
+
             elif res == FAILURE:
                 # unsuccessful login; repeat loop
                 print(f'Login unsuccessful. Please try again.')
@@ -280,6 +291,41 @@ def load_symm_key():
     symmetric_key_cam = Fernet(symmetric_key_cam)
 
 
+def handle_user(conn, username):
+
+    keep_going = True
+
+    while keep_going is True:
+
+        valid_option = False
+
+        while valid_option is False:
+            option = input(f'Do you wish to [U]pload or [D]ownload a file? ([B]ack to logout)\n').lower()
+
+            if option == 'd':
+                valid_option = True
+
+                option = input(f'Choose one of the following options:\n\t[L]: List the files currently available on the cloud\n\t[<filename.ext>]: Download a file\n\t[B]: Return to previous menu\n')
+                if option == 'l' or option == 'L':
+                    pass
+                elif option == 'b' or option == 'B':
+                    pass
+                else:   # file request
+                    result = request_download(conn, option, username)
+
+            elif option == 'u':
+                pass
+            elif option == 'b':
+                pass
+            else:
+                print(f'Not a valid option.')
+
+
+
+def handle_admin(conn):
+    pass
+
+
 # either encrypts a message and sends it using the given connection object
 def encrypt_and_send(conn, msg):
     msg_bytes = str.encode(msg)
@@ -290,11 +336,51 @@ def encrypt_and_send(conn, msg):
 
 # gets the next msg from a connection object, decrypts using the key and returns the plaintext
 def decrypt_from_src(conn):
-    time.sleep(0.2)
     ciphertext = conn.recv()
     plaintext = symmetric_key_cam.decrypt(ciphertext).decode("utf-8")
     print(f'\tReceived {plaintext}; ciphertext: {ciphertext}')
     return plaintext
+
+
+def request_download(conn, filename, username):
+
+    encrypt_and_send(conn, REQ_DOWNLOAD)
+    res = decrypt_from_src(conn)
+
+    if res == OK:
+        # submit request for file in form [filename.ext]
+        encrypt_and_send(conn, filename)
+
+        res = decrypt_from_src(conn)
+
+        if res == FAILURE:  # file not found on cloud
+            pass
+        else:
+            write_to_user_directory(res, username, filename)
+            print(f'File download successful. Please check your \'group_files\\downloads\' folder.')
+
+    else:
+        raise Exception(PROTOCOL_EX)
+
+
+def write_to_user_directory(file_bytes, username, filename):
+    # files that are downloaded are written to group_files/<username>/downloads/
+    cur_dir = os.path.dirname(os.path.realpath(__file__))
+
+    #@todo make dir if doesn't exist already
+    path_to_user_dir = os.path.join(cur_dir, f'group_files\\{username}\\downloads')
+    print(path_to_user_dir)
+
+    # make parent directories if they don't already exist
+    if not os.path.exists(path_to_user_dir):
+        os.makedirs(path_to_user_dir)
+
+    path_to_target_file = os.path.join(path_to_user_dir, filename)
+    print(path_to_target_file)
+
+    with open(path_to_target_file, 'wb') as target_file:
+        target_file.write(file_bytes)
+        target_file.close()
 
 
 if __name__ == '__main__':
