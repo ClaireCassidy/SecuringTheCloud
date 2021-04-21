@@ -8,6 +8,9 @@ from cryptography.fernet import Fernet
 USER_PRIVILEGE = 0
 ADMIN_PRIVILEGE = 1
 
+AS_BYTES = 0
+AS_STR = 1
+
 REGISTER = 'r'
 LOG_IN = 'l'
 QUIT = 'q'
@@ -47,12 +50,12 @@ def main():
 
     # initialise communication with CAM
     encrypt_and_send(conn, HELLO)
-    res = decrypt_from_src(conn)
+    res = decrypt_from_src(conn, AS_STR)
 
     if res == HELLO:
         # begin registration/login flow:
         encrypt_and_send(conn, REQ_USER_LIST)
-        user_list_string = decrypt_from_src(conn)
+        user_list_string = decrypt_from_src(conn, AS_STR)
         users, admins = extract_usernames(user_list_string)
 
         username, privilege_lvl = prompt_for_login(users, admins, conn)
@@ -125,14 +128,14 @@ def prompt_for_login(users, admins, conn):
             if username is not None:
                 encrypt_and_send(conn, REQ_REGISTER)
 
-                res = decrypt_from_src(conn)
+                res = decrypt_from_src(conn, AS_STR)
                 if res == OK:
                     encrypt_and_send(conn, f'{username}|{pw}')
                     users.append(username)
                 else:
                     raise Exception(PROTOCOL_EX)
 
-                res = decrypt_from_src(conn)
+                res = decrypt_from_src(conn, AS_STR)
                 if res == SUCCESS:
                     print(f'Registered user \'{username}\' successfully. To finish registration, please contact a '
                           f'system administrator to obtain your key and proceed to log in.')
@@ -145,7 +148,7 @@ def prompt_for_login(users, admins, conn):
         elif option == QUIT:
             encrypt_and_send(conn, REQ_CLOSE)
 
-            res = decrypt_from_src(conn)
+            res = decrypt_from_src(conn, AS_STR)
             if res == OK:
                 print(f'Goodbye!')
                 break
@@ -231,13 +234,13 @@ def handle_log_in(conn):
         encrypt_and_send(conn, REQ_LOGIN)
 
         # await OK from CAM
-        res = decrypt_from_src(conn)
+        res = decrypt_from_src(conn, AS_STR)
         if res == OK:
             # proceed to send login details for verification
             encrypt_and_send(conn, f'{username}|{password}')
 
             # response is either SUCCESS if verifiable or FAIL if not
-            res = decrypt_from_src(conn)
+            res = decrypt_from_src(conn, AS_STR)
             if res == SUCCESS:
 
                 # successful login
@@ -335,9 +338,14 @@ def encrypt_and_send(conn, msg):
 
 
 # gets the next msg from a connection object, decrypts using the key and returns the plaintext
-def decrypt_from_src(conn):
+def decrypt_from_src(conn, as_what):
     ciphertext = conn.recv()
-    plaintext = symmetric_key_cam.decrypt(ciphertext).decode("utf-8")
+
+    plaintext = symmetric_key_cam.decrypt(ciphertext)
+
+    if as_what == AS_STR:
+        plaintext = plaintext.decode("utf-8")
+
     print(f'\tReceived {plaintext}; ciphertext: {ciphertext}')
     return plaintext
 
@@ -345,13 +353,13 @@ def decrypt_from_src(conn):
 def request_download(conn, filename, username):
 
     encrypt_and_send(conn, REQ_DOWNLOAD)
-    res = decrypt_from_src(conn)
+    res = decrypt_from_src(conn, AS_STR)
 
     if res == OK:
         # submit request for file in form [filename.ext]
         encrypt_and_send(conn, filename)
 
-        res = decrypt_from_src(conn)
+        res = decrypt_from_src(conn, AS_BYTES)
 
         if res == FAILURE:  # file not found on cloud
             pass
