@@ -1,0 +1,2 @@
+adminpw
+b'szVwo7P3qYmdKxDB1nErtN0HG8W40TlKU6GZEjFSVBk='

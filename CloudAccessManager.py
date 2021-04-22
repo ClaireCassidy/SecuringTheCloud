@@ -27,6 +27,9 @@ DECRYPT = 1
 AS_BYTES = 0
 AS_STR = 1
 
+USER = 0
+ADMIN = 1
+
 USERS_PATH = r"cam_files\users"
 ADMINS_PATH = r"cam_files\admins"
 
@@ -267,13 +270,26 @@ def process_login(conn):
     username = login_details[0]
     password = login_details[1]
 
-    if username in user_usernames or username in admin_usernames:
+    user_type = None
+    print(f'Users: {user_usernames}')
+    print(f'Admins: {admin_usernames}')
+
+    if username in user_usernames:
+        user_type = USER
+    elif username in admin_usernames:
+        user_type = ADMIN
+
+    if user_type is not None:
+
         # get user's password from storage
         cur_dir = os.path.dirname(os.path.realpath(__file__))
-        full_path_users = os.path.join(cur_dir, USERS_PATH)
-        print(full_path_users)
-        path_user_record = os.path.join(full_path_users, f'{username}.txt')
 
+        if user_type == USER:
+            full_path = os.path.join(cur_dir, USERS_PATH)
+        else:  # admin
+            full_path = os.path.join(cur_dir, ADMINS_PATH)
+
+        path_user_record = os.path.join(full_path, f'{username}.txt')
         print(path_user_record)
 
         with open(path_user_record, 'rb') as user_file:
@@ -298,6 +314,7 @@ def process_download(conn):
 
     target_file = decrypt_from_src(conn, symmetric_key_client, AS_STR)
     print(target_file)
+    print(cloud_filenames)
 
     if target_file in cloud_filenames:
         # query Gdrive for file
@@ -330,7 +347,6 @@ def encrypt_and_send(conn, msg, fernet_key):
 
 # gets the next msg from a connection object, decrypts using the key and returns the plaintext
 def decrypt_from_src(conn, fernet_key, as_what):
-
     ciphertext = conn.recv()
     plaintext = fernet_key.decrypt(ciphertext)
 
@@ -391,7 +407,6 @@ def handle_upload(conn):
 
     # tell client it was successful
     encrypt_and_send(conn, SUCCESS, symmetric_key_client)
-
 
 
 def perform_stage_setup():
