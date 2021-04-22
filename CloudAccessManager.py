@@ -426,18 +426,24 @@ def handle_user_deletion(conn):
     # todo: remember to delete user record from local data structues
     encrypt_and_send(conn, OK, symmetric_key_client)
 
-    username = decrypt_from_src(conn, symmetric_key_client)
+    username = decrypt_from_src(conn, symmetric_key_client, AS_STR)
 
-    user_type = None
+    rel_path = None
     if username in admin_usernames:
-        user_type = ADMIN
+        rel_path = os.path.join(ADMINS_PATH, f'{username}')
     elif username in user_usernames:
-        user_type = USER
+        rel_path = os.path.join(USERS_PATH, f'{username}')
     else:   # user doesn't seem to exist :/
         encrypt_and_send(conn, FAILURE)
 
-    if user_type is not None:
-        pass
+    if rel_path is not None:
+        # delete user record file
+        cur_dir = os.path.dirname(os.path.realpath(__file__))
+        target_file = os.path.join(cur_dir, rel_path)
+        print(target_file)
+
+        # os.remove(target_file)
+        encrypt_and_send(conn, SUCCESS, symmetric_key_client)
 
 
 

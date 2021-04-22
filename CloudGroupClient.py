@@ -435,7 +435,7 @@ def handle_delete_user(conn):
 
     while valid_username is False:
         target_user = input(f'Enter a username to delete. Enter [L] to view a list of registered users. '
-                            f'Enter [B] to go back.')
+                            f'Enter [B] to go back.\n')
 
         if target_user == 'L' or target_user == 'l':
             for user in all_users:
@@ -461,7 +461,7 @@ def handle_delete_user(conn):
 
             # delete from local group records:
             cur_dir = os.path.dirname(os.path.realpath(__file__))
-            group_files_target = os.path.join(cur_dir, f'\\group_files\\{target_user}')
+            group_files_target = os.path.join(cur_dir, f'group_files\\{target_user}')
             print(group_files_target)
 
 
