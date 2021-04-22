@@ -30,8 +30,8 @@ REQ_DOWNLOAD = "download"
 REQ_UPLOAD = "upload"
 REQ_CLOUD_FILES = "files"
 OK = "ok"
-SUCCESS = "success"             # request completed successfully
-FAILURE = "failure"             # something went wrong
+SUCCESS = "success"  # request completed successfully
+FAILURE = "failure"  # something went wrong
 
 # dynamic data structure for keeping a list of usernames in memory
 users = []
@@ -85,7 +85,6 @@ def extract_usernames(user_list_string):
 
 
 def prompt_for_login(users, admins, conn):
-
     login_success = False
 
     while not login_success:
@@ -93,27 +92,12 @@ def prompt_for_login(users, admins, conn):
         print('\n')
 
         privilege_level = None
-        option = input(f'Welcome to SecuringTheCloud. [R]egister or [L]og in? ([Q] to exit)\n-----------------\n').lower()
+        option = input(
+            f'Welcome to SecuringTheCloud. [R]egister or [L]og in? ([Q] to exit)\n-----------------\n').lower()
 
         if option == REGISTER:
 
             username, pw = register_new_user(users + admins)
-            if username is not None:
-                encrypt_and_send(conn, REQ_REGISTER)
-
-                res = decrypt_from_src(conn, AS_STR)
-                if res == OK:
-                    encrypt_and_send(conn, f'{username}|{pw}')
-                    users.append(username)
-                else:
-                    raise Exception(PROTOCOL_EX)
-
-                res = decrypt_from_src(conn, AS_STR)
-                if res == SUCCESS:
-                    print(f'Registered user \'{username}\' successfully. To finish registration, please contact a '
-                          f'system administrator to obtain your key and proceed to log in.')
-                else:
-                    raise Exception(PROTOCOL_EX)
 
         elif option == LOG_IN:
             handle_log_in(conn)
@@ -132,11 +116,12 @@ def prompt_for_login(users, admins, conn):
             print(f'Not a valid option. Please try again.')
 
 
-def register_new_user(exclusion_list):
-
+def register_new_user(conn, exclusion_list):
     valid_username = False
     valid_password = False
     go_back = False
+
+    username = None
 
     while valid_username is False:
         username = input(f'Preparing to register a new user... ([B] to go back)\n Username: ').lower()
@@ -150,7 +135,8 @@ def register_new_user(exclusion_list):
             else:
                 valid_username = True
         else:
-            print(f' Please enter a username between 6 and 15 characters containing only letters, numbers, -, and/or _\n')
+            print(
+                f' Please enter a username between 6 and 15 characters containing only letters, numbers, -, and/or _\n')
 
     if go_back is False:
         while valid_password is False:
@@ -162,7 +148,26 @@ def register_new_user(exclusion_list):
                 print(f' Please enter a password between 6 and 15 characters containing only letters, numbers, '
                       f'and/or the following special characters: @ # $ % ^ & + =\n')
 
-    return username, password
+        if username is not None:
+            encrypt_and_send(conn, REQ_REGISTER)
+
+            res = decrypt_from_src(conn, AS_STR)
+            if res == OK:
+                encrypt_and_send(conn, f'{username}|{password}')
+                users.append(username)
+            else:
+                raise Exception(PROTOCOL_EX)
+
+            res = decrypt_from_src(conn, AS_STR)
+            if res == SUCCESS:
+                print(f'Registered user \'{username}\' successfully. To finish registration, please contact a '
+                      f'system administrator to obtain your key and proceed to log in.')
+
+            return True
+    else:
+        raise Exception(PROTOCOL_EX)
+
+    return False
 
 
 def handle_log_in(conn):
@@ -255,85 +260,12 @@ def handle_user(conn, username):
             option = input(f'Do you wish to [U]pload or [D]ownload a file? ([B]ack to logout)\n').lower()
 
             if option == 'd':
-                valid_option = True
 
-                has_downloaded_smth = False
-
-                while has_downloaded_smth is False:
-                    option = input(f'Choose one of the following options:\n\t[L]: List the files currently available on the cloud\n\t[<filename.ext>]: Download a file\n\t[B]: Return to previous menu\n')
-                    if option == 'l' or option == 'L':
-
-                        print(f'\nFiles available for download:')
-                        for file in cloud_files:
-                            print(f' {file}')
-                        print()
-                    elif option == 'b' or option == 'B':
-                        valid_option = True
-                        break
-                    else:   # file request
-                        has_downloaded_smth = True
-                        result = request_download(conn, option, username)
+                handle_download(conn, username)
 
             elif option == 'u':
 
-                # get filenames in user's uploads folder
-                cur_dir = os.path.dirname(os.path.realpath(__file__))
-                path_to_uploads = os.path.join(cur_dir, f'group_files\\{username}\\uploads')
-                print(path_to_uploads)
-
-                file_names = None
-
-                if os.path.exists(path_to_uploads):
-                    file_names = os.listdir(path_to_uploads)
-                    print(file_names)
-                else:
-                    raise Exception(f'Uploads folder doesn\'t exist for user {username}')
-
-                valid_filename = False
-
-                while valid_filename is False:
-                    file_name = input('\nPlease enter the name of the file you wish to upload. ([B]ack to return)\n')
-                    # @todo on register create groupfiles/<username>/uploads
-
-                    if file_name == 'b' or file_name == 'B':
-                        valid_filename = True
-                    elif file_name in file_names:
-
-                        upload_file_path = os.path.join(path_to_uploads, file_name)
-                        print(f'Uploading \'{file_name}\' ... ')
-
-                        file_bytes_unencrypted = None
-                        with open(upload_file_path, 'rb') as upload_file:
-                            file_bytes_unencrypted = upload_file.read()
-
-                        encrypt_and_send(conn, REQ_UPLOAD)
-                        res = decrypt_from_src(conn, AS_STR)
-
-                        if res == OK:
-                            # proceed to send encrypted file bytes
-                            encrypt_and_send(conn, file_name)
-
-                            res = decrypt_from_src(conn, AS_STR)
-                            if res == OK:
-                                encrypt_and_send(conn, file_bytes_unencrypted)
-                            else:
-                                raise Exception(PROTOCOL_EX)
-
-                            res = decrypt_from_src(conn, AS_STR)
-                            if res == SUCCESS:
-                                # add file to local list of files available on cloud
-                                cloud_files.append(file_name)
-
-                                print(f'File uploaded to cloud successfully.')
-                            else:
-                                print(f'Unexpected error uploading file to cloud')
-
-                        else:
-                            raise Exception(PROTOCOL_EX)
-
-                    else:
-                        print(f'Couldn\'t find file \'{file_name}\'. Please ensure this file is '
-                              f'located at {path_to_uploads}')
+                handle_upload(conn, username)
 
             elif option == 'b':
 
@@ -344,9 +276,127 @@ def handle_user(conn, username):
                 print(f'Not a valid option.')
 
 
+def handle_download(conn, username):
+    valid_option = True
 
-def handle_admin(conn):
-    pass
+    has_downloaded_smth = False
+
+    while has_downloaded_smth is False:
+        option = input(
+            f'Choose one of the following options:\n\t[L]: List the files currently available on the cloud\n\t[<filename.ext>]: Download a file\n\t[B]: Return to previous menu\n')
+        if option == 'l' or option == 'L':
+
+            print(f'\nFiles available for download:')
+            for file in cloud_files:
+                print(f' {file}')
+            print()
+        elif option == 'b' or option == 'B':
+            valid_option = True
+            break
+        else:  # file request
+            has_downloaded_smth = True
+            result = request_download(conn, option, username)
+
+
+def handle_upload(conn, username):
+    # get filenames in user's uploads folder
+    cur_dir = os.path.dirname(os.path.realpath(__file__))
+    path_to_uploads = os.path.join(cur_dir, f'group_files\\{username}\\uploads')
+    print(path_to_uploads)
+
+    file_names = None
+
+    if os.path.exists(path_to_uploads):
+        print(f'Files available for upload:')
+        file_names = os.listdir(path_to_uploads)
+        for file in file_names:
+            print(f'\t{file}')
+        print()
+    else:
+        raise Exception(f'Uploads folder doesn\'t exist for user {username}')
+
+    valid_filename = False
+
+    while valid_filename is False:
+        file_name = input('\nPlease enter the name of the file you wish to upload. ([B]ack to return)\n')
+        # @todo on register create groupfiles/<username>/uploads
+
+        if file_name == 'b' or file_name == 'B':
+            valid_filename = True
+        elif file_name in file_names:
+
+            upload_file_path = os.path.join(path_to_uploads, file_name)
+            print(f'Uploading \'{file_name}\' ... ')
+
+            file_bytes_unencrypted = None
+            with open(upload_file_path, 'rb') as upload_file:
+                file_bytes_unencrypted = upload_file.read()
+
+            encrypt_and_send(conn, REQ_UPLOAD)
+            res = decrypt_from_src(conn, AS_STR)
+
+            if res == OK:
+                # proceed to send encrypted file bytes
+                encrypt_and_send(conn, file_name)
+
+                res = decrypt_from_src(conn, AS_STR)
+                if res == OK:
+                    encrypt_and_send(conn, file_bytes_unencrypted)
+                else:
+                    raise Exception(PROTOCOL_EX)
+
+                res = decrypt_from_src(conn, AS_STR)
+                if res == SUCCESS:
+                    # add file to local list of files available on cloud
+                    cloud_files.append(file_name)
+
+                    print(f'File uploaded to cloud successfully.')
+                else:
+                    print(f'Unexpected error uploading file to cloud')
+
+            else:
+                raise Exception(PROTOCOL_EX)
+
+        else:
+            print(f'Couldn\'t find file \'{file_name}\'. Please ensure this file is '
+                  f'located at {path_to_uploads}')
+
+
+def handle_admin(conn, username):
+    keep_going = True
+
+    while keep_going:
+        option = input(f'Welcome {username}. Please choose an option:'
+                       f'\n[U]:\tUpload a file'
+                       f'\n[D]:\tDownload a file'
+                       f'\n[M]:\tManage users'
+                       f'\n[B]:\tLog out\n').lower()
+
+        if option == 'u':
+            handle_upload(conn, username)
+        elif option == 'd':
+            handle_download(conn, username)
+        elif option == 'm':
+            manage_users(conn, username)
+        elif option == 'b':
+            keep_going = False
+
+
+def manage_users(conn, username):
+    keep_going = True
+
+    while keep_going:
+        option = input(f'Please choose a user management option:'
+                       f'\n[D]:\tDelete a user'
+                       f'\n[P]:\tPromote a user to admin'
+                       f'\n[B]:\tGo back\n').lower()
+
+        if option == 'd':
+            pass
+        elif option == 'p':
+            pass
+        elif option == 'b':
+            keep_going = False
 
 
 # either encrypts a message and sends it using the given connection object
@@ -372,7 +422,6 @@ def decrypt_from_src(conn, as_what):
 
 
 def request_download(conn, filename, username):
-
     encrypt_and_send(conn, REQ_DOWNLOAD)
     res = decrypt_from_src(conn, AS_STR)
 
@@ -396,7 +445,7 @@ def write_to_user_directory(file_bytes, username, filename):
     # files that are downloaded are written to group_files/<username>/downloads/
     cur_dir = os.path.dirname(os.path.realpath(__file__))
 
-    #@todo make dir if doesn't exist already
+    # @todo make dir if doesn't exist already
     path_to_user_dir = os.path.join(cur_dir, f'group_files\\{username}\\downloads')
     print(path_to_user_dir)
 

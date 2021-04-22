@@ -84,11 +84,11 @@ def main():
 
     # receive messages from cloud group client
     while True:
+
         msg = decrypt_from_src(conn, symmetric_key_client, AS_STR)
         print(msg)
         if msg == HELLO:  # communication established
-            print('msg was hello')
-            # conn.send(HELLO)
+
             encrypt_and_send(conn, HELLO, symmetric_key_client)
 
             close = False
@@ -213,6 +213,9 @@ def load_cloud_file_list():
         cloud_filenames[item['name']] = item['id']
 
     print(cloud_filenames)
+
+
+# Client request handlers:
 
 
 def send_user_list(conn):
