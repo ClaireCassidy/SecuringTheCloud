@@ -24,6 +24,9 @@ CLIENT = 1
 ENCRYPT = 0
 DECRYPT = 1
 
+AS_BYTES = 0
+AS_STR = 1
+
 USERS_PATH = r"cam_files\users"
 ADMINS_PATH = r"cam_files\admins"
 
@@ -34,10 +37,11 @@ REQ_REGISTER = "register"
 REQ_CLOSE = "close"
 REQ_LOGIN = "login"
 REQ_DOWNLOAD = "download"
+REQ_UPLOAD = "upload"
 REQ_CLOUD_FILES = "files"
 OK = "ok"
-SUCCESS = "success"             # request completed successfully
-FAILURE = "failure"             # something went wrong
+SUCCESS = "success"  # request completed successfully
+FAILURE = "failure"  # something went wrong
 
 # dynamic data structure for keeping a list of usernames in memory
 user_usernames = []
@@ -55,34 +59,13 @@ def main():
     # authorise self to upload/download from associated GDrive account
     drive_service = perform_cloud_auth()
 
+    # create staging areas
+    perform_stage_setup()
+
     # get the Fernet key for communication between program and cloud
     symmetric_key_cloud = Fernet(load_key(CLOUD))
     # get the Fernet key for communication between the program and client
     symmetric_key_client = Fernet(load_key(CLIENT))
-
-    # # @todo remove
-    # # some test files:
-    # file_name = 'encrypt_me.txt'
-    #
-    # with open(file_name, 'rb') as file:
-    #     file_bytes = file.read()
-    #
-    # encrypted_bytes = symmetric_key_cloud.encrypt(file_bytes)
-    #
-    # file_name = 'ciphertext.txt'
-    # with open(file_name, 'wb') as file:
-    #     file.write(encrypted_bytes)
-    #     file.close()
-    #
-    # file_metadata = {'name': file_name}
-    #
-    # to_upload = MediaFileUpload(file_name, resumable=True)
-    # file = drive_service.files().create(body=file_metadata,
-    #                               media_body=to_upload,
-    #                               fields='id').execute()
-    # file_id = file.get('id')
-    #
-    # print('Created file with id ' + file_id)
 
     # initialise list of usernames (one time file-read)
     user_usernames, admin_usernames = load_usernames(USERS_PATH, ADMINS_PATH)
@@ -101,7 +84,7 @@ def main():
 
     # receive messages from cloud group client
     while True:
-        msg = decrypt_from_src(conn, symmetric_key_client)
+        msg = decrypt_from_src(conn, symmetric_key_client, AS_STR)
         print(msg)
         if msg == HELLO:  # communication established
             print('msg was hello')
@@ -111,7 +94,7 @@ def main():
             close = False
 
             while close is False:
-                req = decrypt_from_src(conn, symmetric_key_client)
+                req = decrypt_from_src(conn, symmetric_key_client, AS_STR)
                 if req == REQ_USER_LIST:
                     send_user_list(conn)
                 elif req == REQ_REGISTER:
@@ -122,6 +105,8 @@ def main():
                     process_download(conn)
                 elif req == REQ_CLOUD_FILES:
                     send_file_list(conn)
+                elif req == REQ_UPLOAD:
+                    handle_upload(conn)
                 elif req == REQ_CLOSE:
                     # conn.send(OK)
                     encrypt_and_send(conn, OK, symmetric_key_client)
@@ -131,16 +116,6 @@ def main():
         conn.close()
         break
 
-
-        # file_name = conn.recv()
-        # if file_name == 'close':
-        #     conn.close()
-        #     break
-        # else:
-        #     print(f'Expecting file from [{listener.last_accepted}]: {file_name}')
-        #
-        #     file_bytes = conn.recv()
-        #     print(f'Received file bytes of \'{file_name}\' from [{listener.last_accepted}]: {file_bytes}')
     listener.close()
 
 
@@ -169,7 +144,6 @@ def perform_cloud_auth():
 
 
 def load_key(type):
-
     cwd = os.getcwd()
     key = None
 
@@ -207,7 +181,6 @@ def load_key(type):
 
 
 def load_usernames(users_path, admins_path):
-
     users = []
     admins = []
 
@@ -254,8 +227,7 @@ def send_user_list(conn):
 def process_registration(conn):
     encrypt_and_send(conn, OK, symmetric_key_client)
 
-    # TODO: ENCRYPT ON CLIENT SIDE, DECRYPT HERE
-    registration_details = decrypt_from_src(conn, symmetric_key_client)  # in form "username|password"
+    registration_details = decrypt_from_src(conn, symmetric_key_client, AS_STR)  # in form "username|password"
     registration_details = registration_details.split("|")
     username = registration_details[0]
     password = registration_details[1]
@@ -286,7 +258,7 @@ def process_login(conn):
     # acknowledge login request
     encrypt_and_send(conn, OK, symmetric_key_client)
 
-    login_details = decrypt_from_src(conn, symmetric_key_client)  # in form '[username]|[password]'
+    login_details = decrypt_from_src(conn, symmetric_key_client, AS_STR)  # in form '[username]|[password]'
     login_details = login_details.split("|")
     print(f'Login Details: {login_details}')
     username = login_details[0]
@@ -321,7 +293,7 @@ def process_download(conn):
 
     encrypt_and_send(conn, OK, symmetric_key_client)
 
-    target_file = decrypt_from_src(conn, symmetric_key_client)
+    target_file = decrypt_from_src(conn, symmetric_key_client, AS_STR)
     print(target_file)
 
     if target_file in cloud_filenames:
@@ -354,9 +326,14 @@ def encrypt_and_send(conn, msg, fernet_key):
 
 
 # gets the next msg from a connection object, decrypts using the key and returns the plaintext
-def decrypt_from_src(conn, fernet_key):
+def decrypt_from_src(conn, fernet_key, as_what):
+
     ciphertext = conn.recv()
-    plaintext = fernet_key.decrypt(ciphertext).decode("utf-8")
+    plaintext = fernet_key.decrypt(ciphertext)
+
+    if as_what == AS_STR:
+        plaintext = plaintext.decode("utf-8")
+
     print(f'\tReceived {plaintext}; ciphertext: {ciphertext}')
     return plaintext
 
@@ -368,6 +345,58 @@ def send_file_list(conn):
     print(encoded_file_list)
 
     encrypt_and_send(conn, encoded_file_list, symmetric_key_client)
+
+
+def handle_upload(conn):
+    global drive_service
+
+    encrypt_and_send(conn, OK, symmetric_key_client)
+
+    # response will be filename followed by filebytes
+    file_name = decrypt_from_src(conn, symmetric_key_client, AS_STR)
+    encrypt_and_send(conn, OK, symmetric_key_client)
+    file_bytes = decrypt_from_src(conn, symmetric_key_client, AS_BYTES)
+    print(file_bytes)
+
+    # encrypt the file using CAM's cloud symm key
+    encrypted_file_bytes = symmetric_key_cloud.encrypt(file_bytes)
+
+    # upload to cloud
+    #   first need to save to staging area
+
+    cur_dir = os.path.dirname(os.path.realpath(__file__))
+    rel_path = f'cam_files\\stage\\{file_name}'
+    path_to_stage_file = os.path.join(cur_dir, rel_path)
+
+    with open(path_to_stage_file, 'wb') as stage_file:
+        stage_file.write(encrypted_file_bytes)
+        stage_file.close()
+
+
+
+    # now upload it
+    file_metadata = {'name': file_name}
+    to_upload = MediaFileUpload(rel_path, resumable=True)
+    file = drive_service.files().create(body=file_metadata,
+                                        media_body=to_upload,
+                                        fields='id').execute()
+
+    # save uploaded file data to dynamic data structure
+    cloud_filenames[file_name] = file.get('id')
+
+    # tell client it was successful
+    encrypt_and_send(conn, SUCCESS, symmetric_key_client)
+
+
+
+def perform_stage_setup():
+    print(f'Setting up stage')
+
+    cur_dir = os.path.dirname(os.path.realpath(__file__))
+    path_to_stage = os.path.join(cur_dir, "cam_files\\stage")
+
+    if not os.path.exists(path_to_stage):
+        os.mkdir(path_to_stage)
 
 
 if __name__ == '__main__':

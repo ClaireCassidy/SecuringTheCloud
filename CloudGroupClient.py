@@ -27,6 +27,7 @@ REQ_REGISTER = "register"
 REQ_CLOSE = "close"
 REQ_LOGIN = "login"
 REQ_DOWNLOAD = "download"
+REQ_UPLOAD = "upload"
 REQ_CLOUD_FILES = "files"
 OK = "ok"
 SUCCESS = "success"             # request completed successfully
@@ -334,7 +335,64 @@ def handle_user(conn, username):
                         result = request_download(conn, option, username)
 
             elif option == 'u':
-                pass
+
+                # get filenames in user's uploads folder
+                cur_dir = os.path.dirname(os.path.realpath(__file__))
+                path_to_uploads = os.path.join(cur_dir, f'group_files\\{username}\\uploads')
+                print(path_to_uploads)
+
+                file_names = None
+
+                if os.path.exists(path_to_uploads):
+                    file_names = os.listdir(path_to_uploads)
+                    print(file_names)
+                else:
+                    raise Exception(f'Uploads folder doesn\'t exist for user {username}')
+
+                valid_filename = False
+
+                while valid_filename is False:
+                    file_name = input('\nPlease enter the name of the file you wish to upload. ([B]ack to return)\n')
+                    # @todo on register create groupfiles/<username>/uploads
+
+                    if file_name in file_names:
+
+                        upload_file_path = os.path.join(path_to_uploads, file_name)
+                        print(f'Uploading \'{file_name}\' ... ')
+
+                        file_bytes_unencrypted = None
+                        with open(upload_file_path, 'rb') as upload_file:
+                            file_bytes_unencrypted = upload_file.read()
+
+                        encrypt_and_send(conn, REQ_UPLOAD)
+                        res = decrypt_from_src(conn, AS_STR)
+
+                        if res == OK:
+                            # proceed to send encrypted file bytes
+                            encrypt_and_send(conn, file_name)
+
+                            res = decrypt_from_src(conn, AS_STR)
+                            if res == OK:
+                                encrypt_and_send(conn, file_bytes_unencrypted)
+                            else:
+                                raise Exception(PROTOCOL_EX)
+
+                            res = decrypt_from_src(conn, AS_STR)
+                            if res == SUCCESS:
+                                # add file to local list of files available on cloud
+                                cloud_files.append(file_name)
+
+                                print(f'File uploaded to cloud successfully.')
+                            else:
+                                print(f'Unexpected error uploading file to cloud')
+
+                        else:
+                            raise Exception(PROTOCOL_EX)
+
+                    else:
+                        print(f'Couldn\'t find file \'{file_name}\'. Please ensure this file is '
+                              f'located at {path_to_uploads}')
+
             elif option == 'b':
                 pass
             else:
@@ -348,8 +406,9 @@ def handle_admin(conn):
 
 # either encrypts a message and sends it using the given connection object
 def encrypt_and_send(conn, msg):
-    msg_bytes = str.encode(msg)
-    ciphertext = symmetric_key_cam.encrypt(msg_bytes)
+    if isinstance(msg, str):
+        msg = str.encode(msg)
+    ciphertext = symmetric_key_cam.encrypt(msg)
     print(f'\tSending {msg}; ciphertext: {ciphertext}')
     conn.send(ciphertext)
 
