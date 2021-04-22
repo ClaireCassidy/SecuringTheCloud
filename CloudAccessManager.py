@@ -372,17 +372,19 @@ def handle_upload(conn):
         stage_file.write(encrypted_file_bytes)
         stage_file.close()
 
-
-
     # now upload it
     file_metadata = {'name': file_name}
     to_upload = MediaFileUpload(rel_path, resumable=True)
     file = drive_service.files().create(body=file_metadata,
                                         media_body=to_upload,
                                         fields='id').execute()
+    to_upload = None
 
     # save uploaded file data to dynamic data structure
     cloud_filenames[file_name] = file.get('id')
+
+    # remove file from staging area
+    os.remove(rel_path)
 
     # tell client it was successful
     encrypt_and_send(conn, SUCCESS, symmetric_key_client)

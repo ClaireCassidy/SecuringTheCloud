@@ -66,48 +66,13 @@ def main():
         cloud_files = res.split("|")
         print(cloud_files)
 
-        username, privilege_lvl = prompt_for_login(users, admins, conn)
-        # users = user_list[0]
-        # admins = user_list[1]
-        # print(users)
-        # print(admins)
+        prompt_for_login(users, admins, conn)
 
-        # users, admins = load_usernames(USERS_PATH, ADMINS_PATH)
-        # username, privilege_lvl = prompt_for_login(users, admins)
-        #
-        # print(f'Welcome {username}')
+        # ^ returns when user hits QUIT
+        encrypt_and_send(conn, REQ_CLOSE)
+
     else:
         print(f'Unexpected error in communication protocol')
-
-        # # msg = input('Send a message to CAM (\'close\' to terminate): ')
-        # filename = input('Hello user1. Please give the name of the file you wish to encrypt: ')
-        #
-        # if filename == 'close':
-        #     conn.close()
-        #     break
-        #
-        # path = f'group_files/user1/files/{filename}'
-        #
-        # file_bytes = None
-        #
-        # try:
-        #     with open(f'{path}', 'rb') as file_to_send:
-        #         upload_name = input('Give the upload a name (leave blank to use local name):')
-        #
-        #         if not upload_name:  # User entered no name
-        #             upload_name = filename
-        #
-        #         print(f'\tSending file \'{path}\' to CAM with name \'{upload_name}\'')
-        #         file_bytes = file_to_send.read()
-        # except FileNotFoundError:
-        #     print('\tCouldn\'t find file ' + path)
-        #
-        # if file_bytes is not None:
-        #     conn.send(upload_name)
-        #     time.sleep(0.2)  # ensure received separately
-        #     conn.send(file_bytes)
-        #
-        # print(f'\n')
 
 
 def extract_usernames(user_list_string):
@@ -165,30 +130,6 @@ def prompt_for_login(users, admins, conn):
 
         else:
             print(f'Not a valid option. Please try again.')
-
-        # if username in users:
-        #     privilege_level = USER_PRIVILEGE
-        # elif username in admins:
-        #     privilege_level = ADMIN_PRIVILEGE
-        #
-        # if privilege_level is not None:
-        #     password = input(f' Password:\t')
-        #
-        #     # get password
-        #     if privilege_level == USER_PRIVILEGE:
-        #         expected_pw = get_password(username, USERS_PATH)
-        #     else:
-        #         expected_pw = get_password(username, ADMINS_PATH)
-        #
-        #     if password == expected_pw:
-        #         login_success = True
-        #         return username, privilege_level
-        #     else:
-        #         print(f'Incorrect username or password. Please try again.')
-        # else:
-        #     print(f'No user \'{username}\' found. Please try again.')
-
-    return None, None
 
 
 def register_new_user(exclusion_list):
@@ -269,7 +210,6 @@ def handle_log_in(conn):
 
         else:
             raise Exception(PROTOCOL_EX)
-
 
 
 def get_password(username, path):
@@ -355,7 +295,9 @@ def handle_user(conn, username):
                     file_name = input('\nPlease enter the name of the file you wish to upload. ([B]ack to return)\n')
                     # @todo on register create groupfiles/<username>/uploads
 
-                    if file_name in file_names:
+                    if file_name == 'b' or file_name == 'B':
+                        valid_filename = True
+                    elif file_name in file_names:
 
                         upload_file_path = os.path.join(path_to_uploads, file_name)
                         print(f'Uploading \'{file_name}\' ... ')
@@ -394,7 +336,10 @@ def handle_user(conn, username):
                               f'located at {path_to_uploads}')
 
             elif option == 'b':
-                pass
+
+                valid_option = True
+                keep_going = False
+
             else:
                 print(f'Not a valid option.')
 
