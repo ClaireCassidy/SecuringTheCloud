@@ -4,6 +4,7 @@ import re
 
 from multiprocessing.connection import Client
 from cryptography.fernet import Fernet
+from shutil import rmtree
 
 USER_PRIVILEGE = 0
 ADMIN_PRIVILEGE = 1
@@ -29,6 +30,7 @@ REQ_LOGIN = "login"
 REQ_DOWNLOAD = "download"
 REQ_UPLOAD = "upload"
 REQ_CLOUD_FILES = "files"
+REQ_DEL_USER = "deluser"
 OK = "ok"
 SUCCESS = "success"  # request completed successfully
 FAILURE = "failure"  # something went wrong
@@ -406,16 +408,63 @@ def manage_users(conn, username):
 
     while keep_going:
         option = input(f'Please choose a user management option:'
-                       f'\n[D]:\tDelete a user'
+                       f'\n[U]:\tDelete a user'
+                       f'\n[F]:\tDelete a cloud file'
                        f'\n[P]:\tPromote a user to admin'
                        f'\n[B]:\tGo back\n').lower()
 
-        if option == 'd':
+        if option == 'u':
+            handle_delete_user(conn)
+        elif option == 'f':
             pass
         elif option == 'p':
             pass
         elif option == 'b':
             keep_going = False
+
+
+def handle_delete_user(conn):
+        # todo: remember to delete user record from local data structues
+
+    global users, admins
+
+    all_users = users + admins
+    print(all_users)
+
+    valid_username = False
+
+    while valid_username is False:
+        target_user = input(f'Enter a username to delete. Enter [L] to view a list of registered users. '
+                            f'Enter [B] to go back.')
+
+        if target_user == 'L' or target_user == 'l':
+            for user in all_users:
+                print(f'\t{user}')
+        elif target_user == 'B' or target_user == 'b':
+            valid_username = True
+        elif target_user in all_users:
+            # send req to delete to cam:
+            encrypt_and_send(conn, REQ_DEL_USER)
+            res = decrypt_from_src(conn, AS_STR)
+
+            if res == OK:
+                # send the username
+                encrypt_and_send(conn, target_user)
+                res = decrypt_from_src(conn, AS_STR)
+
+                if res == SUCCESS:
+                    print(f'User {target_user} deleted from CAM records ... ')
+                else:
+                    print(f'Couldn\'t find record for user {target_user} in CAM :/')
+            else:
+                raise Exception(PROTOCOL_EX)
+
+            # delete from local group records:
+            cur_dir = os.path.dirname(os.path.realpath(__file__))
+            group_files_target = os.path.join(cur_dir, f'\\group_files\\{target_user}')
+            print(group_files_target)
+
+
 
 
 # either encrypts a message and sends it using the given connection object

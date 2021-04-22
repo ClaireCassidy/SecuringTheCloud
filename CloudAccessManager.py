@@ -42,6 +42,7 @@ REQ_LOGIN = "login"
 REQ_DOWNLOAD = "download"
 REQ_UPLOAD = "upload"
 REQ_CLOUD_FILES = "files"
+REQ_DEL_USER = "deluser"
 OK = "ok"
 SUCCESS = "success"  # request completed successfully
 FAILURE = "failure"  # something went wrong
@@ -110,6 +111,8 @@ def main():
                     send_file_list(conn)
                 elif req == REQ_UPLOAD:
                     handle_upload(conn)
+                elif req == REQ_DEL_USER:
+                    handle_user_deletion(conn)
                 elif req == REQ_CLOSE:
                     # conn.send(OK)
                     encrypt_and_send(conn, OK, symmetric_key_client)
@@ -417,6 +420,25 @@ def perform_stage_setup():
 
     if not os.path.exists(path_to_stage):
         os.mkdir(path_to_stage)
+
+
+def handle_user_deletion(conn):
+    # todo: remember to delete user record from local data structues
+    encrypt_and_send(conn, OK, symmetric_key_client)
+
+    username = decrypt_from_src(conn, symmetric_key_client)
+
+    user_type = None
+    if username in admin_usernames:
+        user_type = ADMIN
+    elif username in user_usernames:
+        user_type = USER
+    else:   # user doesn't seem to exist :/
+        encrypt_and_send(conn, FAILURE)
+
+    if user_type is not None:
+        pass
+
 
 
 if __name__ == '__main__':
