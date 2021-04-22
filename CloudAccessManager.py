@@ -60,29 +60,29 @@ def main():
     # get the Fernet key for communication between the program and client
     symmetric_key_client = Fernet(load_key(CLIENT))
 
-    # @todo remove
-    # some test files:
-    file_name = 'encrypt_me.txt'
-
-    with open(file_name, 'rb') as file:
-        file_bytes = file.read()
-
-    encrypted_bytes = symmetric_key_cloud.encrypt(file_bytes)
-
-    file_name = 'ciphertext.txt'
-    with open(file_name, 'wb') as file:
-        file.write(encrypted_bytes)
-        file.close()
-
-    file_metadata = {'name': file_name}
-
-    to_upload = MediaFileUpload(file_name, resumable=True)
-    file = drive_service.files().create(body=file_metadata,
-                                  media_body=to_upload,
-                                  fields='id').execute()
-    file_id = file.get('id')
-
-    print('Created file with id ' + file_id)
+    # # @todo remove
+    # # some test files:
+    # file_name = 'encrypt_me.txt'
+    #
+    # with open(file_name, 'rb') as file:
+    #     file_bytes = file.read()
+    #
+    # encrypted_bytes = symmetric_key_cloud.encrypt(file_bytes)
+    #
+    # file_name = 'ciphertext.txt'
+    # with open(file_name, 'wb') as file:
+    #     file.write(encrypted_bytes)
+    #     file.close()
+    #
+    # file_metadata = {'name': file_name}
+    #
+    # to_upload = MediaFileUpload(file_name, resumable=True)
+    # file = drive_service.files().create(body=file_metadata,
+    #                               media_body=to_upload,
+    #                               fields='id').execute()
+    # file_id = file.get('id')
+    #
+    # print('Created file with id ' + file_id)
 
     # initialise list of usernames (one time file-read)
     user_usernames, admin_usernames = load_usernames(USERS_PATH, ADMINS_PATH)
@@ -120,6 +120,8 @@ def main():
                     process_login(conn)
                 elif req == REQ_DOWNLOAD:
                     process_download(conn)
+                elif req == REQ_CLOUD_FILES:
+                    send_file_list(conn)
                 elif req == REQ_CLOSE:
                     # conn.send(OK)
                     encrypt_and_send(conn, OK, symmetric_key_client)
@@ -359,9 +361,13 @@ def decrypt_from_src(conn, fernet_key):
     return plaintext
 
 
-def service_login(conn):
-    # get whether the client is registering or logging in
-    service_type = None
+def send_file_list(conn):
+    global cloud_filenames
+
+    encoded_file_list = "|".join(cloud_filenames.keys())
+    print(encoded_file_list)
+
+    encrypt_and_send(conn, encoded_file_list, symmetric_key_client)
 
 
 if __name__ == '__main__':

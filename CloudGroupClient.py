@@ -35,12 +35,13 @@ FAILURE = "failure"             # something went wrong
 # dynamic data structure for keeping a list of usernames in memory
 users = []
 admins = []
+cloud_files = []
 
 symmetric_key_cam = None
 
 
 def main():
-    global users, admins, symmetric_key_cam
+    global users, admins, symmetric_key_cam, cloud_files
 
     # load key for comms with CAM
     load_symm_key()
@@ -57,6 +58,12 @@ def main():
         encrypt_and_send(conn, REQ_USER_LIST)
         user_list_string = decrypt_from_src(conn, AS_STR)
         users, admins = extract_usernames(user_list_string)
+
+        # get filenames from cloud
+        encrypt_and_send(conn, REQ_CLOUD_FILES)
+        res = decrypt_from_src(conn, AS_STR)
+        cloud_files = res.split("|")
+        print(cloud_files)
 
         username, privilege_lvl = prompt_for_login(users, admins, conn)
         # users = user_list[0]
@@ -295,6 +302,7 @@ def load_symm_key():
 
 
 def handle_user(conn, username):
+    global cloud_files
 
     keep_going = True
 
@@ -308,13 +316,22 @@ def handle_user(conn, username):
             if option == 'd':
                 valid_option = True
 
-                option = input(f'Choose one of the following options:\n\t[L]: List the files currently available on the cloud\n\t[<filename.ext>]: Download a file\n\t[B]: Return to previous menu\n')
-                if option == 'l' or option == 'L':
-                    pass
-                elif option == 'b' or option == 'B':
-                    pass
-                else:   # file request
-                    result = request_download(conn, option, username)
+                has_downloaded_smth = False
+
+                while has_downloaded_smth is False:
+                    option = input(f'Choose one of the following options:\n\t[L]: List the files currently available on the cloud\n\t[<filename.ext>]: Download a file\n\t[B]: Return to previous menu\n')
+                    if option == 'l' or option == 'L':
+
+                        print(f'\nFiles available for download:')
+                        for file in cloud_files:
+                            print(f' {file}')
+                        print()
+                    elif option == 'b' or option == 'B':
+                        valid_option = True
+                        break
+                    else:   # file request
+                        has_downloaded_smth = True
+                        result = request_download(conn, option, username)
 
             elif option == 'u':
                 pass
@@ -362,10 +379,10 @@ def request_download(conn, filename, username):
         res = decrypt_from_src(conn, AS_BYTES)
 
         if res == FAILURE:  # file not found on cloud
-            pass
+            print(f'Unexpected error finding file in cloud.')
         else:
             write_to_user_directory(res, username, filename)
-            print(f'File download successful. Please check your \'group_files\\downloads\' folder.')
+            print(f'File download successful. You file has been saved to \'group_files\\{username}\\downloads\'.')
 
     else:
         raise Exception(PROTOCOL_EX)
