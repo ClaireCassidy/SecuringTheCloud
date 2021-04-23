@@ -33,6 +33,7 @@ REQ_CLOUD_FILES = "files"
 REQ_DEL_USER = "deluser"
 REQ_MK_ADMIN = "admin"
 REQ_RM_ADMIN = "demote"
+REQ_DEL_FILE = "delfile"
 OK = "ok"
 SUCCESS = "success"  # request completed successfully
 FAILURE = "failure"  # something went wrong
@@ -425,7 +426,7 @@ def manage_cloud_group(conn, username):
         if option == 'u':
             handle_delete_user(conn)
         elif option == 'f':
-            pass
+            handle_file_deletion(conn)
         elif option == 'd':
             handle_admin_demotion(conn)
         elif option == 'p':
@@ -435,6 +436,45 @@ def manage_cloud_group(conn, username):
         else:
             print(f'Option not recognised. Please try again.\n')
 
+
+def handle_file_deletion(conn):
+    global cloud_files
+
+    keep_going = True
+
+    while keep_going is True:
+        print(f'Files currently stored on cloud:')
+        for file in cloud_files:
+            print(f'\t{file}')
+
+        file_name = input(f'Please enter the name of the file you wish to delete: ([B] to go back)\n')
+
+        if file_name.lower() == 'b':
+            keep_going = False
+        elif file_name in cloud_files:
+            # send request to CAM to delete file
+            encrypt_and_send(conn, REQ_DEL_FILE)
+            res = decrypt_from_src(conn, AS_STR)
+
+            if res == OK:
+
+                # send filename to delete
+                encrypt_and_send(conn, file_name)
+                res = decrypt_from_src(conn, AS_STR)
+
+                if res == SUCCESS:
+                    print(f'File \'{file_name}\' successfully removed from cloud group storage')
+
+                    # remove reference in local data structure
+                    cloud_files.remove(file_name)
+                else:
+                    print(f'Something went wrong deleting that file :/')
+
+            else:
+                raise Exception(PROTOCOL_EX)
+
+        else:
+            print(f'Invalid file name. Please try again.')
 
 def handle_admin_demotion(conn):
     global users, admins

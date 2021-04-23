@@ -7,6 +7,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 from multiprocessing.connection import Listener
+from apiclient import errors
 
 from cryptography.fernet import Fernet
 
@@ -45,6 +46,7 @@ REQ_CLOUD_FILES = "files"
 REQ_DEL_USER = "deluser"
 REQ_MK_ADMIN = "admin"
 REQ_RM_ADMIN = "demote"
+REQ_DEL_FILE = "delfile"
 OK = "ok"
 SUCCESS = "success"  # request completed successfully
 FAILURE = "failure"  # something went wrong
@@ -57,6 +59,8 @@ cloud_filenames = {}
 symmetric_key_cloud = None
 symmetric_key_client = None
 
+# Todo: need to stop files that are already on cloud being overwritten i.e. halt if file with same name on cloud
+# Todo: add warning on download that file in local directory will be overwritten if applicable
 
 def main():
     global user_usernames, admin_usernames, symmetric_key_client, \
@@ -119,6 +123,8 @@ def main():
                     handle_user_promotion(conn)
                 elif req == REQ_RM_ADMIN:
                     handle_admin_demotion(conn)
+                elif req == REQ_DEL_FILE:
+                    handle_delete_file(conn)
                 elif req == REQ_CLOSE:
                     # conn.send(OK)
                     encrypt_and_send(conn, OK, symmetric_key_client)
@@ -410,6 +416,32 @@ def decrypt_from_src(conn, fernet_key, as_what):
 
     print(f'\tReceived {plaintext}; ciphertext: {ciphertext}')
     return plaintext
+
+def handle_delete_file(conn):
+    global cloud_filenames
+
+    encrypt_and_send(conn, OK, symmetric_key_client)
+    target_file = decrypt_from_src(conn, symmetric_key_client, AS_STR)
+
+    # get associated GDrive id:
+    file_id = cloud_filenames[target_file]
+
+    delete_success = False
+    # call on drive service to delete the file:
+    try:
+        drive_service.files().delete(fileId=file_id).execute()
+        delete_success = True
+    except errors.HttpError as error:
+        print(f'ERROR OCCURRED DELETING FILE {target_file}:{file_id}\n\t{error}')
+
+    if delete_success:
+        # remove from local data structure
+        cloud_filenames.pop(target_file)
+
+        # report success to client
+        encrypt_and_send(conn, SUCCESS, symmetric_key_client)
+    else:
+        encrypt_and_send(conn, FAILURE, symmetric_key_client)
 
 
 def send_file_list(conn):
