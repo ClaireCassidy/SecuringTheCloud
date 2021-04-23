@@ -333,7 +333,31 @@ def handle_download(conn, username):
         else:  # file request
             if option in cloud_files:
                 has_downloaded_smth = True
-                result = request_download(conn, option, username)
+
+                # first notify that local file will be overwritten if required
+                cur_dir = os.path.dirname(os.path.realpath(__file__))
+                path_to_dl = os.path.join(cur_dir, f'group_files\\{username}\\downloads\\{option}')
+
+                if os.path.exists(path_to_dl):  # i.e. already file in user's dl folder with same name
+
+                    valid_option = False
+                    proceed = True
+
+                    while valid_option is False:
+                        option2 = input(f'Proceeding will overwrite local file \'{option}\' in your downloads folder. '
+                                       f'Proceed? [Y/N]\n').lower()
+
+                        if option2 == 'y':
+                            valid_option = True
+                        elif option2 == 'n':
+                            valid_option = True
+                            proceed = False
+                            print(f'Cancelling operation ... ')
+                        else:
+                            print(f'Not a recognised option. Please enter [Y/N]')
+
+                if proceed is True:
+                    result = request_download(conn, option, username)
             else:
                 print(f'That file does not exist. Enter [L] to see a list of files available to download.')
 
