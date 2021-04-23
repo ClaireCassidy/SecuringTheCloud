@@ -49,6 +49,9 @@ symmetric_key_cam = None
 def main():
     global users, admins, symmetric_key_cam, cloud_files
 
+    # perform one-time setup of client_files
+    perform_initial_setup()
+
     # load key for comms with CAM
     load_symm_key()
 
@@ -80,6 +83,15 @@ def main():
 
     else:
         print(f'Unexpected error in communication protocol')
+
+
+def perform_initial_setup():
+    cur_dir = os.path.dirname(os.path.realpath(__file__))
+    full_path = os.path.join(cur_dir, f'client_files')
+
+    if not os.path.exists(full_path):
+        os.makedir(full_path)
+        print(f'Created \'{full_path}\'')
 
 
 def extract_usernames(user_list_string):
