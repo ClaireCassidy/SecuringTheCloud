@@ -31,6 +31,7 @@ REQ_DOWNLOAD = "download"
 REQ_UPLOAD = "upload"
 REQ_CLOUD_FILES = "files"
 REQ_DEL_USER = "deluser"
+REQ_MK_ADMIN = "admin"
 OK = "ok"
 SUCCESS = "success"  # request completed successfully
 FAILURE = "failure"  # something went wrong
@@ -61,6 +62,8 @@ def main():
         encrypt_and_send(conn, REQ_USER_LIST)
         user_list_string = decrypt_from_src(conn, AS_STR)
         users, admins = extract_usernames(user_list_string)
+        print(users)
+        print(admins)
 
         # get filenames from cloud
         encrypt_and_send(conn, REQ_CLOUD_FILES)
@@ -78,10 +81,14 @@ def main():
 
 
 def extract_usernames(user_list_string):
+    print(user_list_string)
+
     # divide into users and admins
     split_list = user_list_string.split("|")
     user_usernames = split_list[0].split(" ")
     admin_usernames = split_list[1].split(" ")
+    print(user_usernames)
+    print(admin_usernames)
 
     return user_usernames, admin_usernames
 
@@ -390,7 +397,7 @@ def handle_admin(conn, username):
         option = input(f'Please choose an option:'
                        f'\n\t[U]:\tUpload a file'
                        f'\n\t[D]:\tDownload a file'
-                       f'\n\t[M]:\tManage users'
+                       f'\n\t[M]:\tManage cloud group'f
                        f'\n\t[B]:\tLog out\n').lower()
 
         if option == 'u':
@@ -398,12 +405,12 @@ def handle_admin(conn, username):
         elif option == 'd':
             handle_download(conn, username)
         elif option == 'm':
-            manage_users(conn, username)
+            manage_cloud_group(conn, username)
         elif option == 'b':
             keep_going = False
 
 
-def manage_users(conn, username):
+def manage_cloud_group(conn, username):
     keep_going = True
 
     while keep_going:
@@ -418,9 +425,54 @@ def manage_users(conn, username):
         elif option == 'f':
             pass
         elif option == 'p':
-            pass
+            handle_user_promotion(conn)
         elif option == 'b':
             keep_going = False
+        else:
+            print(f'Option not recognised. Please try again.\n')
+
+
+def handle_user_promotion(conn):
+    global users, admins
+
+    valid_username = False
+
+    while valid_username is False:
+
+        print(f'Users available for promotion:')
+        for user in users:
+            print(f'\t{user}')
+
+        target_user = input(f'\nPlease enter the name of the user you wish to promote to admin. ([B]ack to go back)\n')
+
+        if target_user.lower() == 'b':
+            valid_username = True   # break
+        elif target_user in users:
+            # Move local record into admins list
+            users.remove(target_user)
+            admins.append(target_user)
+
+            # Send CAM a message to move user record into admin directory
+            encrypt_and_send(conn, REQ_MK_ADMIN)
+            res = decrypt_from_src(conn, AS_STR)
+
+            if res == OK:
+                # send username to promote:
+                encrypt_and_send(conn, target_user)
+                res = decrypt_from_src(conn, AS_STR)
+
+                if res == SUCCESS:
+                    print(f'User {target_user} successfully promoted to admin')
+                    print(f'\tUSERS: {users}')
+                    print(f'\tADMINS: {admins}')
+                else:   # FAILURE
+                    print(f'Unexpected error occurred when promoting user in CAM :/')
+            else:
+                raise Exception(PROTOCOL_EX)
+        elif target_user in admins:
+            print(f'That user is already an admin!')
+        else:   # invalid username
+            print(f'That user does not exist. Please try again.')
 
 
 def handle_delete_user(conn):
@@ -465,8 +517,6 @@ def handle_delete_user(conn):
             print(group_files_target)
 
             rmtree(group_files_target)
-
-
 
 
 # either encrypts a message and sends it using the given connection object
