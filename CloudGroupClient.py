@@ -424,7 +424,7 @@ def manage_users(conn, username):
 
 
 def handle_delete_user(conn):
-        # todo: remember to delete user record from local data structues
+    # todo: remember to delete user record from local data structues
 
     global users, admins
 
@@ -463,6 +463,8 @@ def handle_delete_user(conn):
             cur_dir = os.path.dirname(os.path.realpath(__file__))
             group_files_target = os.path.join(cur_dir, f'group_files\\{target_user}')
             print(group_files_target)
+
+            rmtree(group_files_target)
 
 
 

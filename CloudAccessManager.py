@@ -430,9 +430,12 @@ def handle_user_deletion(conn):
 
     rel_path = None
     if username in admin_usernames:
-        rel_path = os.path.join(ADMINS_PATH, f'{username}')
+        # also delete record in users dynamic data structure:
+        admin_usernames.remove(username)
+        rel_path = os.path.join(ADMINS_PATH, f'{username}.txt')
     elif username in user_usernames:
-        rel_path = os.path.join(USERS_PATH, f'{username}')
+        user_usernames.remove(username)
+        rel_path = os.path.join(USERS_PATH, f'{username}.txt')
     else:   # user doesn't seem to exist :/
         encrypt_and_send(conn, FAILURE)
 
@@ -442,9 +445,9 @@ def handle_user_deletion(conn):
         target_file = os.path.join(cur_dir, rel_path)
         print(target_file)
 
-        # os.remove(target_file)
-        encrypt_and_send(conn, SUCCESS, symmetric_key_client)
+        os.remove(target_file)
 
+        encrypt_and_send(conn, SUCCESS, symmetric_key_client)
 
 
 if __name__ == '__main__':
