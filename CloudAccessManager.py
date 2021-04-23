@@ -6,10 +6,14 @@ from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
+
 from multiprocessing.connection import Listener
 from apiclient import errors
 
 from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+
 
 # What GDrive permissions we're requiring:
 SCOPES = ['https://www.googleapis.com/auth/drive']
@@ -71,6 +75,8 @@ def main():
 
     # perform one-time directory setups
     perform_dir_setup()
+    # perform one-time public/private key generation
+    generate_asymm_keys()
 
     # get the Fernet key for communication between program and cloud
     symmetric_key_cloud = Fernet(load_key(CLOUD))
@@ -136,6 +142,38 @@ def main():
 
     listener.close()
 
+
+def generate_asymm_keys():
+
+    print(f'Performing one-time key generation ... ')
+    cur_dir = os.path.dirname(os.path.realpath(__file__))
+    path_to_keys = os.path.join(cur_dir, f'cam_files\\keys')
+
+    if not os.path.exists(path_to_keys):
+        # make it
+        os.mkdir(path_to_keys)
+
+        # generate public and private keys
+        cam_priv_key = rsa.generate_private_key(public_exponent=65537, key_size=4096)
+        cam_public_key = cam_priv_key.public_key()
+
+        # store the keys
+        pem_priv = cam_priv_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption()
+        )
+
+        save_loc = os.path.join(path_to_keys, 'private_key.pem')
+        with open(save_loc, 'wb') as pem_file:
+            pem_file.write(pem_priv)
+
+        pem_pub = cam_public_key.public_bytes(encoding=serialization.Encoding.PEM,
+                                              format=serialization.PublicFormat.SubjectPublicKeyInfo)
+
+        save_loc = os.path.join(path_to_keys, 'public_key.pem')
+        with open(save_loc, 'wb') as pem_file:
+            pem_file.write(pem_pub)
 
 def perform_cloud_auth():
     # Load access token or creates one if DNE
