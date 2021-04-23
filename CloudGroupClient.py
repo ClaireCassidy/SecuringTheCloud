@@ -361,43 +361,73 @@ def handle_upload(conn, username):
             raise Exception(f'Uploads folder doesn\'t exist for user {username}')
 
         file_name = input('\nPlease enter the name of the file you wish to upload. ([B]ack to return)\n')
-        # @todo on register create groupfiles/<username>/uploads
 
         if file_name == 'b' or file_name == 'B':
             valid_filename = True
         elif file_name in file_names:
 
-            upload_file_path = os.path.join(path_to_uploads, file_name)
-            print(f'Uploading \'{file_name}\' ... ')
+            proceed = True
 
-            file_bytes_unencrypted = None
-            with open(upload_file_path, 'rb') as upload_file:
-                file_bytes_unencrypted = upload_file.read()
+            if file_name in cloud_files:
+                valid_option = False
 
-            encrypt_and_send(conn, REQ_UPLOAD)
-            res = decrypt_from_src(conn, AS_STR)
+                while valid_option is False:
+                    overwrite = input(f'File with this name already uploaded. Overwrite? [Y/N]\n').lower()
+                    if overwrite == 'y':
+                        valid_option = True
+                        proceed = True
 
-            if res == OK:
-                # proceed to send encrypted file bytes
-                encrypt_and_send(conn, file_name)
+                        # Delete the old file
+                        encrypt_and_send(conn, REQ_DEL_FILE)
+                        res = decrypt_from_src(conn, AS_STR)
+                        if res == OK:
+                            encrypt_and_send(conn, file_name)
 
+                            res = decrypt_from_src(conn, REQ_DEL_FILE)
+                            if res == FAILURE:
+                                print(f'Something went wrong deleting cloud file. Aborting ...')
+                                proceed = False
+                        else:
+                            raise Exception(PROTOCOL_EX)
+                    elif overwrite == 'n':
+                        valid_option = True
+                        proceed = False
+                        print(f'Operation cancelled.')
+                    else:
+                        print(f'Invalid option. Please enter [Y/N].')
+
+            if proceed:
+                upload_file_path = os.path.join(path_to_uploads, file_name)
+                print(f'Uploading \'{file_name}\' ... ')
+
+                file_bytes_unencrypted = None
+                with open(upload_file_path, 'rb') as upload_file:
+                    file_bytes_unencrypted = upload_file.read()
+
+                encrypt_and_send(conn, REQ_UPLOAD)
                 res = decrypt_from_src(conn, AS_STR)
+
                 if res == OK:
-                    encrypt_and_send(conn, file_bytes_unencrypted)
+                    # proceed to send encrypted file bytes
+                    encrypt_and_send(conn, file_name)
+
+                    res = decrypt_from_src(conn, AS_STR)
+                    if res == OK:
+                        encrypt_and_send(conn, file_bytes_unencrypted)
+                    else:
+                        raise Exception(PROTOCOL_EX)
+
+                    res = decrypt_from_src(conn, AS_STR)
+                    if res == SUCCESS:
+                        # add file to local list of files available on cloud
+                        cloud_files.append(file_name)
+
+                        print(f'File uploaded to cloud successfully.')
+                    else:
+                        print(f'Unexpected error uploading file to cloud')
+
                 else:
                     raise Exception(PROTOCOL_EX)
-
-                res = decrypt_from_src(conn, AS_STR)
-                if res == SUCCESS:
-                    # add file to local list of files available on cloud
-                    cloud_files.append(file_name)
-
-                    print(f'File uploaded to cloud successfully.')
-                else:
-                    print(f'Unexpected error uploading file to cloud')
-
-            else:
-                raise Exception(PROTOCOL_EX)
 
         else:
             print(f'Couldn\'t find file \'{file_name}\'. Please ensure this file is '
