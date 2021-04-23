@@ -69,8 +69,8 @@ def main():
     # authorise self to upload/download from associated GDrive account
     drive_service = perform_cloud_auth()
 
-    # create staging areas
-    perform_stage_setup()
+    # perform one-time directory setups
+    perform_dir_setup()
 
     # get the Fernet key for communication between program and cloud
     symmetric_key_cloud = Fernet(load_key(CLOUD))
@@ -496,14 +496,26 @@ def handle_upload(conn):
     encrypt_and_send(conn, SUCCESS, symmetric_key_client)
 
 
-def perform_stage_setup():
-    print(f'Setting up stage')
-
+def perform_dir_setup():
     cur_dir = os.path.dirname(os.path.realpath(__file__))
-    path_to_stage = os.path.join(cur_dir, "cam_files\\stage")
+    path_to_cam_files = os.path.join(cur_dir, f'cam_files')
 
-    if not os.path.exists(path_to_stage):
+    if not os.path.exists(path_to_cam_files):
+
+        print(f'Creating CAM files ... ')
+        os.mkdir(path_to_cam_files)
+
+        print(f'Setting up stage ... ')
+        path_to_stage = os.path.join(path_to_cam_files, f'stage')
         os.mkdir(path_to_stage)
+
+        print(f'Setting up user records ... ')
+        path_to_users = os.path.join(path_to_cam_files, USERS_PATH)
+        os.mkdir(path_to_users)
+
+        print(f'Setting up admin records ... ')
+        path_to_admins = os.path.join(path_to_cam_files, ADMINS_PATH)
+        os.mkdir(path_to_admins)
 
 
 def handle_user_deletion(conn):
