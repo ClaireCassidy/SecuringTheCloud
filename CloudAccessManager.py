@@ -44,6 +44,7 @@ REQ_UPLOAD = "upload"
 REQ_CLOUD_FILES = "files"
 REQ_DEL_USER = "deluser"
 REQ_MK_ADMIN = "admin"
+REQ_RM_ADMIN = "demote"
 OK = "ok"
 SUCCESS = "success"  # request completed successfully
 FAILURE = "failure"  # something went wrong
@@ -116,6 +117,8 @@ def main():
                     handle_user_deletion(conn)
                 elif req == REQ_MK_ADMIN:
                     handle_user_promotion(conn)
+                elif req == REQ_RM_ADMIN:
+                    handle_admin_demotion(conn)
                 elif req == REQ_CLOSE:
                     # conn.send(OK)
                     encrypt_and_send(conn, OK, symmetric_key_client)
@@ -285,6 +288,29 @@ def handle_user_promotion(conn):
     # update dynamic data structures holding usernames
     user_usernames.remove(username)
     admin_usernames.append(username)
+
+    encrypt_and_send(conn, SUCCESS, symmetric_key_client)
+
+
+def handle_admin_demotion(conn):
+    global user_usernames, admin_usernames
+
+    encrypt_and_send(conn, OK, symmetric_key_client)
+    username = decrypt_from_src(conn, symmetric_key_client, AS_STR)
+
+    cur_dir = os.path.dirname(os.path.realpath(__file__))
+    # get cur path to admin record:
+    full_path_to_admin_record = os.path.join(cur_dir, f'cam_files\\admins\\{username}.txt')
+
+    # get dest path:
+    dest_path = os.path.join(cur_dir, f'cam_files\\users\\{username}.txt')
+
+    # move the record
+    os.rename(full_path_to_admin_record, dest_path)
+
+    # update dynamic data structures holding usernames
+    admin_usernames.remove(username)
+    user_usernames.append(username)
 
     encrypt_and_send(conn, SUCCESS, symmetric_key_client)
 

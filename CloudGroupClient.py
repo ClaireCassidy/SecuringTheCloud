@@ -32,6 +32,7 @@ REQ_UPLOAD = "upload"
 REQ_CLOUD_FILES = "files"
 REQ_DEL_USER = "deluser"
 REQ_MK_ADMIN = "admin"
+REQ_RM_ADMIN = "demote"
 OK = "ok"
 SUCCESS = "success"  # request completed successfully
 FAILURE = "failure"  # something went wrong
@@ -397,7 +398,7 @@ def handle_admin(conn, username):
         option = input(f'Please choose an option:'
                        f'\n\t[U]:\tUpload a file'
                        f'\n\t[D]:\tDownload a file'
-                       f'\n\t[M]:\tManage cloud group'f
+                       f'\n\t[M]:\tManage cloud group'
                        f'\n\t[B]:\tLog out\n').lower()
 
         if option == 'u':
@@ -418,18 +419,65 @@ def manage_cloud_group(conn, username):
                        f'\n[U]:\tDelete a user'
                        f'\n[F]:\tDelete a cloud file'
                        f'\n[P]:\tPromote a user to admin'
+                       f'\n[D]:\tDemote an admin'
                        f'\n[B]:\tGo back\n').lower()
 
         if option == 'u':
             handle_delete_user(conn)
         elif option == 'f':
             pass
+        elif option == 'd':
+            handle_admin_demotion(conn)
         elif option == 'p':
             handle_user_promotion(conn)
         elif option == 'b':
             keep_going = False
         else:
             print(f'Option not recognised. Please try again.\n')
+
+
+def handle_admin_demotion(conn):
+    global users, admins
+
+    valid_username = False
+
+    while valid_username is False:
+
+        print(f'Admins available for demotion:')
+        for admin in admins:
+            print(f'\t{admin}')
+
+        target_admin = input(f'\nPlease enter the name of the admin you wish to demote. ([B]ack to go back)\n')
+
+        if target_admin.lower() == 'b':
+            valid_username = True   # break
+        elif target_admin in admins:
+            # Move local record into users list
+            admins.remove(target_admin)
+            users.append(target_admin)
+
+            # Send CAM a message to move user record into users directory
+            encrypt_and_send(conn, REQ_RM_ADMIN)
+            res = decrypt_from_src(conn, AS_STR)
+
+            if res == OK:
+                # send username to demote:
+                encrypt_and_send(conn, target_admin)
+                res = decrypt_from_src(conn, AS_STR)
+
+                if res == SUCCESS:
+                    print(f'User {target_admin} successfully demoted to user')
+                    print(f'\tUSERS: {users}')
+                    print(f'\tADMINS: {admins}')
+                else:   # FAILURE
+                    print(f'Unexpected error occurred when promoting user in CAM :/')
+            else:
+                raise Exception(PROTOCOL_EX)
+
+        elif target_admin in users:
+            print(f'That user is not an admin!')
+        else:   # invalid username
+            print(f'That user does not exist. Please try again.')
 
 
 def handle_user_promotion(conn):
