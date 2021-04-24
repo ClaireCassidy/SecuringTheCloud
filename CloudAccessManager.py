@@ -70,11 +70,12 @@ def main():
     global user_usernames, admin_usernames, \
         symmetric_key_cloud, drive_service, cloud_filenames, public_key_client, private_key
 
+    # perform one-time directory setups
+    perform_dir_setup()
+
     # authorise self to upload/download from associated GDrive account
     drive_service = perform_cloud_auth()
 
-    # perform one-time directory setups
-    perform_dir_setup()
     # perform one-time public/private key generation or load existing keys
     load_asymm_keys()
 
@@ -115,11 +116,6 @@ def main():
 
         # further comms will be encrypted, so load client's pub key
         load_client_pub_key()
-
-        # # send test msg:
-        # encrypt_and_send(conn, f'Hello from CAM!', public_key_client)
-        # res = decrypt_from_src(conn, private_key)
-        # print(f'Client says: \'{res}\'')
 
     else:
         proceed = False
@@ -254,8 +250,8 @@ def perform_cloud_auth():
     creds = None
 
     # Load credentials if they exist (i.e. the authorisation set up has been run already)
-    if os.path.exists('token.json'):
-        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+    if os.path.exists('cam_files\\gdrive\\token.json'):
+        creds = Credentials.from_authorized_user_file('cam_files\\gdrive\\token.json', SCOPES)
 
     # If they don't exist, create
     if not creds or not creds.valid:
@@ -263,10 +259,10 @@ def perform_cloud_auth():
             creds.refresh(Request())
         else:
             flow = InstalledAppFlow.from_client_secrets_file(
-                'credentials.json', SCOPES)
+                'cam_files\\gdrive\\credentials.json', SCOPES)
             creds = flow.run_local_server(port=0)
         # Save the credentials for the next run
-        with open('token.json', 'w') as token:
+        with open('cam_files\\gdrive\\token.json', 'w') as token:
             token.write(creds.to_json())
 
     # return reference to drive service object that will handle upload/download requests
@@ -346,8 +342,6 @@ def load_cloud_file_list():
 
 
 # Client request handlers:
-
-
 def send_user_list(conn):
     # user_list, admin_list = load_usernames(USERS_PATH, ADMINS_PATH)
     encoded_list = " ".join(user_usernames)
@@ -366,17 +360,13 @@ def process_registration(conn):
     password = registration_details[1]
     print(f'Preparing to register user \'{username}\' ... ')
 
-    # generate new Fernet symm key for user:
-    users_symm_key = Fernet.generate_key()
-    print(f'Generating key for \'{username}\' ...')
-
     # write the new user details to CAM files:
     cur_dir = os.path.dirname(os.path.realpath(__file__))
     full_path_users = os.path.join(cur_dir, USERS_PATH)
     path_to_new_file = os.path.join(full_path_users, f'{username}.txt')
 
     with open(path_to_new_file, 'w') as new_user_file:
-        new_user_file.write(f'{password}\n{users_symm_key}')
+        new_user_file.write(f'{password}')
         new_user_file.close()
 
     # add to dynamic data structure representing usernames:
@@ -682,20 +672,33 @@ def perform_dir_setup():
     path_to_cam_files = os.path.join(cur_dir, f'cam_files')
 
     if not os.path.exists(path_to_cam_files):
-        print(f'Creating CAM files ... ')
+        print(f'Creating CAM files @ {path_to_cam_files} ... ')
         os.mkdir(path_to_cam_files)
 
-        print(f'Setting up stage ... ')
         path_to_stage = os.path.join(path_to_cam_files, f'stage')
+        print(f'Setting up stage @ {path_to_stage} ... ')
         os.mkdir(path_to_stage)
 
-        print(f'Setting up user records ... ')
-        path_to_users = os.path.join(path_to_cam_files, USERS_PATH)
+        path_to_users = os.path.join(path_to_cam_files, f'users')
+        print(f'Setting up user records @ {path_to_users} ... ')
         os.mkdir(path_to_users)
 
-        print(f'Setting up admin records ... ')
-        path_to_admins = os.path.join(path_to_cam_files, ADMINS_PATH)
+        path_to_admins = os.path.join(path_to_cam_files, f'admins')
+        print(f'Setting up admin records @ {path_to_admins} ... ')
         os.mkdir(path_to_admins)
+
+        # create default admin account
+        path_to_default_admin = os.path.join(path_to_admins, f'sysadmin.txt')
+        with open(path_to_default_admin, 'w') as default_admin:
+            default_admin.write('adminpw')
+            default_admin.close()
+
+        path_to_gdrive = os.path.join(path_to_cam_files, f'cam_files/gdrive')
+        print(f'Setting up GDrive folder @ {path_to_gdrive}')
+        os.mkdir(path_to_gdrive)
+        # make credentials.json here:
+        with open(os.path.join(path_to_gdrive, f'cam_files/gdrive/credentials.json'), 'w') as f:
+            f.close()
 
 
 def handle_user_deletion(conn):

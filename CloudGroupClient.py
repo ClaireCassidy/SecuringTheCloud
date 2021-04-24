@@ -78,10 +78,6 @@ def main():
         # now load keys
         load_keys()
 
-        # # recv test msg
-        # msg = decrypt_from_src(conn, private_key)
-        # encrypt_and_send(conn, f'Hello from CLIENT', public_key_cam)
-
         # begin registration/login flow:
         encrypt_and_send(conn, REQ_USER_LIST)
         user_list_string = decrypt_from_src(conn, AS_STR)
