@@ -6,7 +6,6 @@ from multiprocessing.connection import Client
 from shutil import rmtree
 
 from cryptography.exceptions import InvalidSignature
-from cryptography.fernet import Fernet
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
@@ -82,14 +81,11 @@ def main():
         encrypt_and_send(conn, REQ_USER_LIST)
         user_list_string = decrypt_from_src(conn, AS_STR)
         users, admins = extract_usernames(user_list_string)
-        print(users)
-        print(admins)
 
         # get filenames from cloud
         encrypt_and_send(conn, REQ_CLOUD_FILES)
         res = decrypt_from_src(conn, AS_STR)
         cloud_files = res.split("|")
-        print(cloud_files)
 
         prompt_for_login(users, admins, conn)
 
@@ -97,31 +93,6 @@ def main():
         encrypt_and_send(conn, REQ_CLOSE)
     else:
         raise Exception(PROTOCOL_EX)
-
-    # encrypt_and_send(conn, HELLO)
-    # res = decrypt_from_src(conn, AS_STR)
-    #
-    # if res == HELLO:
-    #     # begin registration/login flow:
-    #     encrypt_and_send(conn, REQ_USER_LIST)
-    #     user_list_string = decrypt_from_src(conn, AS_STR)
-    #     users, admins = extract_usernames(user_list_string)
-    #     print(users)
-    #     print(admins)
-    #
-    #     # get filenames from cloud
-    #     encrypt_and_send(conn, REQ_CLOUD_FILES)
-    #     res = decrypt_from_src(conn, AS_STR)
-    #     cloud_files = res.split("|")
-    #     print(cloud_files)
-    #
-    #     prompt_for_login(users, admins, conn)
-    #
-    #     # ^ returns when user hits QUIT
-    #     encrypt_and_send(conn, REQ_CLOSE)
-    #
-    # else:
-    #     print(f'Unexpected error in communication protocol')
 
 
 def load_keys():
@@ -149,17 +120,17 @@ def load_keys():
 
 
 def perform_key_exchange(conn, cur_dir, save_path):
+
+    print(f'Performing one-time public key exchange ... ')
     # send client's pubkey to CAM
     path_to_client_pubkey = os.path.join(cur_dir, f'client_files\\public_key.pem')
 
     with open(path_to_client_pubkey, 'rb') as file:
         file_bytes = file.read()
-        print(file_bytes)
         conn.send(file_bytes)
 
     # CAM responds with own PKey
     cam_pubkey = conn.recv()
-    print(cam_pubkey)
 
     # save it
     with open(save_path, 'wb') as file:
@@ -200,14 +171,11 @@ def perform_initial_setup():
 
 
 def extract_usernames(user_list_string):
-    print(user_list_string)
 
     # divide into users and admins
     split_list = user_list_string.split("|")
     user_usernames = split_list[0].split(" ")
     admin_usernames = split_list[1].split(" ")
-    print(user_usernames)
-    print(admin_usernames)
 
     return user_usernames, admin_usernames
 
@@ -403,20 +371,6 @@ def handle_user(conn, username):
                 print(f'Not a valid option.')
 
 
-# todo remove
-# def load_symm_key():
-#     global symmetric_key_cam
-#
-#     cwd = os.getcwd()
-#     path_to_key = f'{cwd}\\client_files\\fernet_client.key'
-#
-#     with open(path_to_key, 'rb') as key_file:
-#         symmetric_key_cam = key_file.read()
-#         key_file.close()
-#
-#     symmetric_key_cam = Fernet(symmetric_key_cam)
-
-
 def handle_download(conn, username):
     valid_option = True
 
@@ -486,7 +440,6 @@ def handle_upload(conn, username):
         # get filenames in user's uploads folder
         cur_dir = os.path.dirname(os.path.realpath(__file__))
         path_to_uploads = os.path.join(cur_dir, f'group_files\\{username}\\uploads')
-        print(path_to_uploads)
 
         file_names = None
 
@@ -788,15 +741,6 @@ def handle_delete_user(conn):
             rmtree(group_files_target)
 
 
-# either encrypts a message and sends it using the given connection object
-# def encrypt_and_send(conn, msg):
-#     if isinstance(msg, str):
-#         msg = str.encode(msg)
-#     ciphertext = symmetric_key_cam.encrypt(msg)
-#     print(f'\tSending {msg}; ciphertext: {ciphertext}')
-#     conn.send(ciphertext)
-
-
 def encrypt_and_send(conn, msg):
     global public_key_cam
 
@@ -822,23 +766,11 @@ def encrypt_and_send(conn, msg):
         hashes.SHA256()
     )
 
-    print(f'\tSending {msg}; ciphertext: {ciphertext}')
+    # print(f'\tSending {msg}; ciphertext: {ciphertext}')
     conn.send(ciphertext)
 
-    print(f'\t\tSending signature: {signature}')
+    # print(f'\t\tSending signature: {signature}')
     conn.send(signature)
-
-# gets the next msg from a connection object, decrypts using the key and returns the plaintext
-# def decrypt_from_src(conn, as_what):
-#     ciphertext = conn.recv()
-#
-#     plaintext = symmetric_key_cam.decrypt(ciphertext)
-#
-#     if as_what == AS_STR:
-#         plaintext = plaintext.decode("utf-8")
-#
-#     print(f'\tReceived {plaintext}; ciphertext: {ciphertext}')
-#     return plaintext
 
 
 def decrypt_from_src(conn, as_what):
@@ -873,7 +805,7 @@ def decrypt_from_src(conn, as_what):
         if as_what == AS_STR:
             plaintext = plaintext.decode("utf-8")
 
-        print(f'\tReceived {plaintext}; ciphertext: {ciphertext}')
+        # print(f'\tReceived {plaintext}; ciphertext: {ciphertext}')
         return plaintext
 
     except InvalidSignature:
@@ -907,14 +839,12 @@ def write_to_user_directory(file_bytes, username, filename):
     cur_dir = os.path.dirname(os.path.realpath(__file__))
 
     path_to_user_dir = os.path.join(cur_dir, f'group_files\\{username}\\downloads')
-    print(path_to_user_dir)
 
     # make parent directories if they don't already exist
     if not os.path.exists(path_to_user_dir):
         os.makedirs(path_to_user_dir)
 
     path_to_target_file = os.path.join(path_to_user_dir, filename)
-    print(path_to_target_file)
 
     with open(path_to_target_file, 'wb') as target_file:
         target_file.write(file_bytes)

@@ -343,11 +343,11 @@ def load_cloud_file_list():
 
 # Client request handlers:
 def send_user_list(conn):
-    # user_list, admin_list = load_usernames(USERS_PATH, ADMINS_PATH)
+
     encoded_list = " ".join(user_usernames)
     encoded_list += "|"
     encoded_list += " ".join(admin_usernames)
-    # conn.send(encoded_list)
+
     encrypt_and_send(conn, encoded_list)
 
 
@@ -525,25 +525,11 @@ def encrypt_and_send(conn, msg):
         hashes.SHA256()
     )
 
-    print(f'\tSending {msg}; ciphertext: {ciphertext}')
+    # print(f'\tSending {msg}; ciphertext: {ciphertext}')
     conn.send(ciphertext)
 
-    print(f'\t\tSending signature: {signature}')
+    # print(f'\t\tSending signature: {signature}')
     conn.send(signature)
-
-
-# gets the next msg from a connection object, decrypts using the key and returns the plaintext
-# def decrypt_from_src_symm(conn, as_what):
-#     global symmetric_key_cloud
-#
-#     ciphertext = conn.recv()
-#     plaintext = symmetric_key_cloud.decrypt(ciphertext)
-#
-#     if as_what == AS_STR:
-#         plaintext = plaintext.decode("utf-8")
-#
-#     print(f'\tReceived {plaintext}; ciphertext: {ciphertext}')
-#     return plaintext
 
 
 # decrypts a message from the client encrypted using CAM's pub key by using the CAM's private key
@@ -579,7 +565,7 @@ def decrypt_from_src(conn, as_what):
         if as_what == AS_STR:
             plaintext = plaintext.decode("utf-8")
 
-        print(f'\tReceived {plaintext}; ciphertext: {ciphertext}')
+        # print(f'\tReceived {plaintext}; ciphertext: {ciphertext}')
         return plaintext
 
     except InvalidSignature:
@@ -619,7 +605,6 @@ def send_file_list(conn):
     global cloud_filenames
 
     encoded_file_list = "|".join(cloud_filenames.keys())
-    print(encoded_file_list)
 
     encrypt_and_send(conn, encoded_file_list)
 
@@ -633,7 +618,6 @@ def handle_upload(conn):
     file_name = decrypt_from_src(conn, AS_STR)
     encrypt_and_send(conn, OK)
     file_bytes = decrypt_from_src(conn, AS_BYTES)
-    print(file_bytes)
 
     # encrypt the file using CAM's cloud symm key
     encrypted_file_bytes = symmetric_key_cloud.encrypt(file_bytes)
@@ -721,7 +705,6 @@ def handle_user_deletion(conn):
         # delete user record file
         cur_dir = os.path.dirname(os.path.realpath(__file__))
         target_file = os.path.join(cur_dir, rel_path)
-        print(target_file)
 
         os.remove(target_file)
 
