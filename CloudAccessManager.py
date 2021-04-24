@@ -1,6 +1,7 @@
 import io
 import os.path
 
+from cryptography.hazmat.backends import default_backend
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -11,8 +12,8 @@ from multiprocessing.connection import Listener
 from apiclient import errors
 
 from cryptography.fernet import Fernet
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives import serialization, hashes
+from cryptography.hazmat.primitives.asymmetric import rsa, padding
 
 # What GDrive permissions we're requiring:
 SCOPES = ['https://www.googleapis.com/auth/drive']
@@ -60,23 +61,24 @@ admin_usernames = []
 cloud_filenames = {}
 
 symmetric_key_cloud = None
+public_key_client = None
+private_key = None
+
+# OBSOLETE
 symmetric_key_client = None
 
 
-# Todo: need to stop files that are already on cloud being overwritten i.e. halt if file with same name on cloud
-# Todo: add warning on download that file in local directory will be overwritten if applicable
-
 def main():
     global user_usernames, admin_usernames, symmetric_key_client, \
-        symmetric_key_cloud, drive_service, cloud_filenames
+        symmetric_key_cloud, drive_service, cloud_filenames, public_key_client, private_key
 
     # authorise self to upload/download from associated GDrive account
     drive_service = perform_cloud_auth()
 
     # perform one-time directory setups
     perform_dir_setup()
-    # perform one-time public/private key generation
-    generate_asymm_keys()
+    # perform one-time public/private key generation or load existing keys
+    load_asymm_keys()
 
     # get the Fernet key for communication between program and cloud
     symmetric_key_cloud = Fernet(load_key(CLOUD))
@@ -113,24 +115,18 @@ def main():
         path_to_client_pubkey = os.path.join(cur_dir, f'cam_files\\keys\\client_pubkey.pem')
 
         if not os.path.exists(path_to_client_pubkey):
-            # receive public key
-            client_pubkey = conn.recv()
-            print(client_pubkey)
+            perform_key_exchange(conn, cur_dir, path_to_client_pubkey)
 
-            # store key
-            with open(path_to_client_pubkey, 'wb') as file:
-                file.write(client_pubkey)
-                file.close()
+        # further comms will be encrypted, so load client's pub key
+        load_client_pub_key()
 
-            # respond with own pubkey
-            path_to_cam_pubkey = os.path.join(cur_dir, f'cam_files\\keys\\public_key.pem')
+        # send test msg:
+        encrypt_and_send_asymm(conn, f'Hello from CAM!', public_key_client)
+        res = decrypt_from_src_asymm(conn, private_key)
+        print(f'Client says: \'{res}\'')
 
-            with open(path_to_cam_pubkey, 'rb') as file:
-                file_bytes = file.read()
-                print(file_bytes)
-                conn.send(file_bytes)
     else:
-        conn.close()  # terminate connection
+        conn.close()  # terminate connection; protocol not being followed
 
     # # receive messages from cloud group client
     # if proceed is True:
@@ -179,12 +175,32 @@ def main():
     listener.close()
 
 
-def generate_asymm_keys():
+def perform_key_exchange(conn, cur_dir, save_path):
+    # receive public key
+    client_pubkey = conn.recv()
+    print(client_pubkey)
+
+    # store key
+    with open(save_path, 'wb') as file:
+        file.write(client_pubkey)
+        file.close()
+
+    # respond with own pubkey
+    path_to_cam_pubkey = os.path.join(cur_dir, f'cam_files\\keys\\public_key.pem')
+
+    with open(path_to_cam_pubkey, 'rb') as file:
+        file_bytes = file.read()
+        print(file_bytes)
+        conn.send(file_bytes)
+
+
+def load_asymm_keys():
+    global private_key
 
     cur_dir = os.path.dirname(os.path.realpath(__file__))
     path_to_keys = os.path.join(cur_dir, f'cam_files\\keys')
 
-    if not os.path.exists(path_to_keys):
+    if not os.path.exists(path_to_keys):    # need to generate them
         print(f'Performing one-time key generation ... ')
         # make it
         os.mkdir(path_to_keys)
@@ -200,6 +216,9 @@ def generate_asymm_keys():
             encryption_algorithm=serialization.NoEncryption()
         )
 
+        # save local variable for priv key
+        private_key = pem_priv
+
         save_loc = os.path.join(path_to_keys, 'private_key.pem')
         with open(save_loc, 'wb') as pem_file:
             pem_file.write(pem_priv)
@@ -210,6 +229,31 @@ def generate_asymm_keys():
         save_loc = os.path.join(path_to_keys, 'public_key.pem')
         with open(save_loc, 'wb') as pem_file:
             pem_file.write(pem_pub)
+    else:
+        print(f'Loading asymm keys ... ')
+
+        path_to_priv_key = os.path.join(path_to_keys, f'private_key.pem')
+
+        # retrieve private key
+        with open(path_to_priv_key, "rb") as key_file:
+            private_key = serialization.load_pem_private_key(
+                key_file.read(),
+                password=None,
+                backend=default_backend()
+            )
+
+
+def load_client_pub_key():
+    global public_key_client
+
+    cur_dir = os.path.dirname(os.path.realpath(__file__))
+    path_to_client_pubkey = os.path.join(cur_dir, f'cam_files\\keys\\client_pubkey.pem')
+
+    with open(path_to_client_pubkey, "rb") as key_file:
+        public_key_client = serialization.load_pem_public_key(
+            key_file.read(),
+            backend=default_backend()
+        )
 
 
 def perform_cloud_auth():
@@ -473,10 +517,31 @@ def process_download(conn):
 
 
 # either encrypts a message given a fernet key and sends it using the given connection object
+# todo rename encrypt_and_send_symm
 def encrypt_and_send(conn, msg, fernet_key):
     if isinstance(msg, str):
         msg = str.encode(msg)
     ciphertext = fernet_key.encrypt(msg)
+    print(f'\tSending {msg}; ciphertext: {ciphertext}')
+    conn.send(ciphertext)
+
+
+def encrypt_and_send_asymm(conn, msg, pub_key):
+
+    # convert msg to bytes
+    if isinstance(msg, str):
+        msg = str.encode(msg)
+
+    # encrypt with client's public key
+    ciphertext = pub_key.encrypt(
+        msg,
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None
+        )
+    )
+
     print(f'\tSending {msg}; ciphertext: {ciphertext}')
     conn.send(ciphertext)
 
@@ -488,6 +553,22 @@ def decrypt_from_src(conn, fernet_key, as_what):
 
     if as_what == AS_STR:
         plaintext = plaintext.decode("utf-8")
+
+    print(f'\tReceived {plaintext}; ciphertext: {ciphertext}')
+    return plaintext
+
+
+# decrypts a message from the client encrypted using CAM's pub key by using the CAM's private key
+def decrypt_from_src_asymm(conn, priv_key):
+    ciphertext = conn.recv()
+    plaintext = priv_key.decrypt(
+        ciphertext,
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None
+        )
+    )
 
     print(f'\tReceived {plaintext}; ciphertext: {ciphertext}')
     return plaintext

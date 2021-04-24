@@ -7,8 +7,9 @@ from multiprocessing.connection import Client
 from shutil import rmtree
 
 from cryptography.fernet import Fernet
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import serialization,hashes
+from cryptography.hazmat.primitives.asymmetric import rsa, padding
 
 USER_PRIVILEGE = 0
 ADMIN_PRIVILEGE = 1
@@ -47,11 +48,15 @@ users = []
 admins = []
 cloud_files = []
 
+public_key_cam = None
+private_key = None
+
+# todo remove
 symmetric_key_cam = None
 
 
 def main():
-    global users, admins, symmetric_key_cam, cloud_files
+    global users, admins, symmetric_key_cam, cloud_files, public_key_cam, private_key
 
     # perform one-time setup of client_files and keys where applicable
     perform_initial_setup()
@@ -73,22 +78,15 @@ def main():
         path_to_cam_pubkey = os.path.join(cur_dir, f'client_files\\cam_pubkey.pem')
 
         if not os.path.exists(path_to_cam_pubkey):
-            # send client's pubkey to CAM
-            path_to_client_pubkey = os.path.join(cur_dir, f'client_files\\public_key.pem')
+            perform_key_exchange(conn, cur_dir, path_to_cam_pubkey)
 
-            with open(path_to_client_pubkey, 'rb') as file:
-                file_bytes = file.read()
-                print(file_bytes)
-                conn.send(file_bytes)
+        # now load keys
+        load_keys()
 
-            # CAM responds with own PKey
-            cam_pubkey = conn.recv()
-            print(cam_pubkey)
+        # recv test msg
+        msg = decrypt_from_src(conn, private_key)
+        encrypt_and_send(conn, f'Hello from CLIENT', public_key_cam)
 
-            # save it
-            with open(path_to_cam_pubkey, 'wb') as file:
-                file.write(cam_pubkey)
-                file.close()
     else:
         raise Exception(PROTOCOL_EX)
 
@@ -116,6 +114,49 @@ def main():
     #
     # else:
     #     print(f'Unexpected error in communication protocol')
+
+
+def load_keys():
+    global private_key, public_key_cam
+
+    # load client's private key for decryption
+    cur_dir = os.path.dirname(os.path.realpath(__file__))
+    path_to_priv_key = os.path.join(cur_dir, f'client_files\\private_key.pem')
+
+    with open(path_to_priv_key, "rb") as key_file:
+        private_key = serialization.load_pem_private_key(
+            key_file.read(),
+            password=None,
+            backend=default_backend()
+        )
+
+    # load CAM's public key for encryption
+    path_to_cam_pubkey = os.path.join(cur_dir, f'client_files\\cam_pubkey.pem')
+
+    with open(path_to_cam_pubkey, "rb") as key_file:
+        public_key_cam = serialization.load_pem_public_key(
+            key_file.read(),
+            backend=default_backend()
+        )
+
+
+def perform_key_exchange(conn, cur_dir, save_path):
+    # send client's pubkey to CAM
+    path_to_client_pubkey = os.path.join(cur_dir, f'client_files\\public_key.pem')
+
+    with open(path_to_client_pubkey, 'rb') as file:
+        file_bytes = file.read()
+        print(file_bytes)
+        conn.send(file_bytes)
+
+    # CAM responds with own PKey
+    cam_pubkey = conn.recv()
+    print(cam_pubkey)
+
+    # save it
+    with open(save_path, 'wb') as file:
+        file.write(cam_pubkey)
+        file.close()
 
 
 def perform_initial_setup():
@@ -729,22 +770,58 @@ def handle_delete_user(conn):
 
 
 # either encrypts a message and sends it using the given connection object
-def encrypt_and_send(conn, msg):
+# def encrypt_and_send(conn, msg):
+#     if isinstance(msg, str):
+#         msg = str.encode(msg)
+#     ciphertext = symmetric_key_cam.encrypt(msg)
+#     print(f'\tSending {msg}; ciphertext: {ciphertext}')
+#     conn.send(ciphertext)
+
+
+def encrypt_and_send(conn, msg, pub_key):
+
+    # convert msg to bytes
     if isinstance(msg, str):
         msg = str.encode(msg)
-    ciphertext = symmetric_key_cam.encrypt(msg)
+
+    ciphertext = pub_key.encrypt(
+        msg,
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None
+        )
+    )
+
     print(f'\tSending {msg}; ciphertext: {ciphertext}')
     conn.send(ciphertext)
 
 
+
 # gets the next msg from a connection object, decrypts using the key and returns the plaintext
-def decrypt_from_src(conn, as_what):
+# def decrypt_from_src(conn, as_what):
+#     ciphertext = conn.recv()
+#
+#     plaintext = symmetric_key_cam.decrypt(ciphertext)
+#
+#     if as_what == AS_STR:
+#         plaintext = plaintext.decode("utf-8")
+#
+#     print(f'\tReceived {plaintext}; ciphertext: {ciphertext}')
+#     return plaintext
+
+
+def decrypt_from_src(conn, priv_key):
     ciphertext = conn.recv()
 
-    plaintext = symmetric_key_cam.decrypt(ciphertext)
-
-    if as_what == AS_STR:
-        plaintext = plaintext.decode("utf-8")
+    plaintext = priv_key.decrypt(
+        ciphertext,
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None
+        )
+    )
 
     print(f'\tReceived {plaintext}; ciphertext: {ciphertext}')
     return plaintext
