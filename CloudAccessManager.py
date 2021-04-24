@@ -1,6 +1,7 @@
 import io
 import os.path
 
+from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.backends import default_backend
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
@@ -508,21 +509,8 @@ def process_download(conn):
         encrypt_and_send(conn, FAILURE)
 
 
-# either encrypts a message given a fernet key and sends it using the given connection object
-# def encrypt_and_send_symm(conn, msg):
-#     global symmetric_key_cloud
-#
-#     if isinstance(msg, str):
-#         msg = str.encode(msg)
-#
-#     ciphertext = symmetric_key_cloud.encrypt(msg)
-#
-#     print(f'\tSending {msg}; ciphertext: {ciphertext}')
-#     conn.send(ciphertext)
-
-
 def encrypt_and_send(conn, msg):
-    global public_key_client
+    global public_key_client, private_key
 
     # convert msg to bytes
     if isinstance(msg, str):
@@ -538,8 +526,20 @@ def encrypt_and_send(conn, msg):
         )
     )
 
+    signature = private_key.sign(
+        ciphertext,
+        padding.PSS(
+            mgf=padding.MGF1(hashes.SHA256()),
+            salt_length=padding.PSS.MAX_LENGTH
+        ),
+        hashes.SHA256()
+    )
+
     print(f'\tSending {msg}; ciphertext: {ciphertext}')
     conn.send(ciphertext)
+
+    print(f'\t\tSending signature: {signature}')
+    conn.send(signature)
 
 
 # gets the next msg from a connection object, decrypts using the key and returns the plaintext
@@ -558,25 +558,44 @@ def encrypt_and_send(conn, msg):
 
 # decrypts a message from the client encrypted using CAM's pub key by using the CAM's private key
 def decrypt_from_src(conn, as_what):
-    global private_key
+    global private_key, public_key_client
 
     ciphertext = conn.recv()
+    signature = conn.recv()
 
-    plaintext = private_key.decrypt(
-        ciphertext,
-        padding.OAEP(
-            mgf=padding.MGF1(algorithm=hashes.SHA256()),
-            algorithm=hashes.SHA256(),
-            label=None
+    try:
+        verified_ciphertext = public_key_client.verify(
+            signature,
+            ciphertext,
+            padding.PSS(
+                mgf=padding.MGF1(hashes.SHA256()),
+                salt_length=padding.PSS.MAX_LENGTH
+            ),
+            hashes.SHA256()
         )
-    )
 
-    # cast as string if requested
-    if as_what == AS_STR:
-        plaintext = plaintext.decode("utf-8")
+        # will throw exception if signature not valid
+        #   otherwise decrypt
+        plaintext = private_key.decrypt(
+            ciphertext,
+            padding.OAEP(
+                mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                algorithm=hashes.SHA256(),
+                label=None
+            )
+        )
 
-    print(f'\tReceived {plaintext}; ciphertext: {ciphertext}')
-    return plaintext
+        # cast as string if requested
+        if as_what == AS_STR:
+            plaintext = plaintext.decode("utf-8")
+
+        print(f'\tReceived {plaintext}; ciphertext: {ciphertext}')
+        return plaintext
+
+    except InvalidSignature:
+        print(f'Invalid signature on msg')
+
+    return None
 
 
 def handle_delete_file(conn):

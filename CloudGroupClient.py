@@ -5,6 +5,7 @@ from multiprocessing.connection import Client
 
 from shutil import rmtree
 
+from cryptography.exceptions import InvalidSignature
 from cryptography.fernet import Fernet
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization, hashes
@@ -816,9 +817,20 @@ def encrypt_and_send(conn, msg):
         )
     )
 
+    signature = private_key.sign(
+        ciphertext,
+        padding.PSS(
+            mgf=padding.MGF1(hashes.SHA256()),
+            salt_length=padding.PSS.MAX_LENGTH
+        ),
+        hashes.SHA256()
+    )
+
     print(f'\tSending {msg}; ciphertext: {ciphertext}')
     conn.send(ciphertext)
 
+    print(f'\t\tSending signature: {signature}')
+    conn.send(signature)
 
 # gets the next msg from a connection object, decrypts using the key and returns the plaintext
 # def decrypt_from_src(conn, as_what):
@@ -834,25 +846,44 @@ def encrypt_and_send(conn, msg):
 
 
 def decrypt_from_src(conn, as_what):
-    global private_key
+    global private_key, public_key_cam
 
     ciphertext = conn.recv()
+    signature = conn.recv()
 
-    plaintext = private_key.decrypt(
-        ciphertext,
-        padding.OAEP(
-            mgf=padding.MGF1(algorithm=hashes.SHA256()),
-            algorithm=hashes.SHA256(),
-            label=None
+    try:
+        verified_ciphertext = public_key_cam.verify(
+            signature,
+            ciphertext,
+            padding.PSS(
+                mgf=padding.MGF1(hashes.SHA256()),
+                salt_length=padding.PSS.MAX_LENGTH
+            ),
+            hashes.SHA256()
         )
-    )
 
-    # cast as string if requested
-    if as_what == AS_STR:
-        plaintext = plaintext.decode("utf-8")
+        # will throw exception if signature not valid
+        #   otherwise decrypt
+        plaintext = private_key.decrypt(
+            ciphertext,
+            padding.OAEP(
+                mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                algorithm=hashes.SHA256(),
+                label=None
+            )
+        )
 
-    print(f'\tReceived {plaintext}; ciphertext: {ciphertext}')
-    return plaintext
+        # cast as string if requested
+        if as_what == AS_STR:
+            plaintext = plaintext.decode("utf-8")
+
+        print(f'\tReceived {plaintext}; ciphertext: {ciphertext}')
+        return plaintext
+
+    except InvalidSignature:
+        print(f'Invalid signature on msg')
+
+    return None
 
 
 def request_download(conn, filename, username):
