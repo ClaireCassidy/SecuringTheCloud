@@ -3,8 +3,12 @@ import time
 import re
 
 from multiprocessing.connection import Client
-from cryptography.fernet import Fernet
+
 from shutil import rmtree
+
+from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 
 USER_PRIVILEGE = 0
 ADMIN_PRIVILEGE = 1
@@ -49,49 +53,101 @@ symmetric_key_cam = None
 def main():
     global users, admins, symmetric_key_cam, cloud_files
 
-    # perform one-time setup of client_files
+    # perform one-time setup of client_files and keys where applicable
     perform_initial_setup()
 
     # load key for comms with CAM
-    load_symm_key()
+    # load_symm_key()
 
     address = ('localhost', 6000)
     conn = Client(address, authkey=b'cloud_group')
 
     # initialise communication with CAM
-    encrypt_and_send(conn, HELLO)
-    res = decrypt_from_src(conn, AS_STR)
-
+    #   send plaintext HELLO msg
+    conn.send(HELLO)
+    res = conn.recv()
     if res == HELLO:
-        # begin registration/login flow:
-        encrypt_and_send(conn, REQ_USER_LIST)
-        user_list_string = decrypt_from_src(conn, AS_STR)
-        users, admins = extract_usernames(user_list_string)
-        print(users)
-        print(admins)
 
-        # get filenames from cloud
-        encrypt_and_send(conn, REQ_CLOUD_FILES)
-        res = decrypt_from_src(conn, AS_STR)
-        cloud_files = res.split("|")
-        print(cloud_files)
+        # if haven't got a record of CAM's pubkey, keys haven't been exchanged yet.
+        cur_dir = os.path.dirname(os.path.realpath(__file__))
+        path_to_cam_pubkey = os.path.join(cur_dir, f'client_files\\cam_pubkey.pem')
 
-        prompt_for_login(users, admins, conn)
+        if not os.path.exists(path_to_cam_pubkey):
+            # send client's pubkey to CAM
+            path_to_client_pubkey = os.path.join(cur_dir, f'client_files\\public_key.pem')
 
-        # ^ returns when user hits QUIT
-        encrypt_and_send(conn, REQ_CLOSE)
+            with open(path_to_client_pubkey, 'rb') as file:
+                file_bytes = file.read()
+                print(file_bytes)
+                conn.send(file_bytes)
 
+            # CAM responds with own PKey
+            cam_pubkey = conn.recv()
+            print(cam_pubkey)
+
+            # save it
+            with open(path_to_cam_pubkey, 'wb') as file:
+                file.write(cam_pubkey)
+                file.close()
     else:
-        print(f'Unexpected error in communication protocol')
+        raise Exception(PROTOCOL_EX)
+
+    # encrypt_and_send(conn, HELLO)
+    # res = decrypt_from_src(conn, AS_STR)
+    #
+    # if res == HELLO:
+    #     # begin registration/login flow:
+    #     encrypt_and_send(conn, REQ_USER_LIST)
+    #     user_list_string = decrypt_from_src(conn, AS_STR)
+    #     users, admins = extract_usernames(user_list_string)
+    #     print(users)
+    #     print(admins)
+    #
+    #     # get filenames from cloud
+    #     encrypt_and_send(conn, REQ_CLOUD_FILES)
+    #     res = decrypt_from_src(conn, AS_STR)
+    #     cloud_files = res.split("|")
+    #     print(cloud_files)
+    #
+    #     prompt_for_login(users, admins, conn)
+    #
+    #     # ^ returns when user hits QUIT
+    #     encrypt_and_send(conn, REQ_CLOSE)
+    #
+    # else:
+    #     print(f'Unexpected error in communication protocol')
 
 
 def perform_initial_setup():
     cur_dir = os.path.dirname(os.path.realpath(__file__))
-    full_path = os.path.join(cur_dir, f'client_files')
+    path_client_files = os.path.join(cur_dir, f'client_files')
 
-    if not os.path.exists(full_path):
-        os.makedir(full_path)
-        print(f'Created \'{full_path}\'')
+    if not os.path.exists(path_client_files):
+        os.mkdir(path_client_files)
+        print(f'Created \'{path_client_files}\'')
+
+        print(f'Generating keys ...')
+        # create client's asymm keys
+        client_priv_key = rsa.generate_private_key(public_exponent=65537, key_size=4096)
+        client_public_key = client_priv_key.public_key()
+
+        # store the keys
+        pem_priv = client_priv_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption()
+        )
+
+        save_loc = os.path.join(path_client_files, 'private_key.pem')
+        with open(save_loc, 'wb') as pem_file:
+            pem_file.write(pem_priv)
+
+        pem_pub = client_public_key.public_bytes(encoding=serialization.Encoding.PEM,
+                                                 format=serialization.PublicFormat.SubjectPublicKeyInfo)
+
+        save_loc = os.path.join(path_client_files, 'public_key.pem')
+        with open(save_loc, 'wb') as pem_file:
+            pem_file.write(pem_pub)
 
 
 def extract_usernames(user_list_string):
@@ -252,7 +308,6 @@ def validate_group_folder(username):
         os.makedirs(full_path)
 
 
-
 def get_password(username, path):
     cur_dir = os.path.dirname(os.path.realpath(__file__))
     full_path = os.path.join(cur_dir, path)
@@ -345,7 +400,7 @@ def handle_download(conn, username):
 
                     while valid_option is False:
                         option2 = input(f'Proceeding will overwrite local file \'{option}\' in your downloads folder. '
-                                       f'Proceed? [Y/N]\n').lower()
+                                        f'Proceed? [Y/N]\n').lower()
 
                         if option2 == 'y':
                             valid_option = True
@@ -363,7 +418,6 @@ def handle_download(conn, username):
 
 
 def handle_upload(conn, username):
-
     valid_filename = False
 
     while valid_filename is False:
@@ -542,6 +596,7 @@ def handle_file_deletion(conn):
         else:
             print(f'Invalid file name. Please try again.')
 
+
 def handle_admin_demotion(conn):
     global users, admins
 
@@ -556,7 +611,7 @@ def handle_admin_demotion(conn):
         target_admin = input(f'\nPlease enter the name of the admin you wish to demote. ([B]ack to go back)\n')
 
         if target_admin.lower() == 'b':
-            valid_username = True   # break
+            valid_username = True  # break
         elif target_admin in admins:
             # Move local record into users list
             admins.remove(target_admin)
@@ -575,14 +630,14 @@ def handle_admin_demotion(conn):
                     print(f'User {target_admin} successfully demoted to user')
                     print(f'\tUSERS: {users}')
                     print(f'\tADMINS: {admins}')
-                else:   # FAILURE
+                else:  # FAILURE
                     print(f'Unexpected error occurred when promoting user in CAM :/')
             else:
                 raise Exception(PROTOCOL_EX)
 
         elif target_admin in users:
             print(f'That user is not an admin!')
-        else:   # invalid username
+        else:  # invalid username
             print(f'That user does not exist. Please try again.')
 
 
@@ -600,7 +655,7 @@ def handle_user_promotion(conn):
         target_user = input(f'\nPlease enter the name of the user you wish to promote to admin. ([B]ack to go back)\n')
 
         if target_user.lower() == 'b':
-            valid_username = True   # break
+            valid_username = True  # break
         elif target_user in users:
             # Move local record into admins list
             users.remove(target_user)
@@ -619,13 +674,13 @@ def handle_user_promotion(conn):
                     print(f'User {target_user} successfully promoted to admin')
                     print(f'\tUSERS: {users}')
                     print(f'\tADMINS: {admins}')
-                else:   # FAILURE
+                else:  # FAILURE
                     print(f'Unexpected error occurred when promoting user in CAM :/')
             else:
                 raise Exception(PROTOCOL_EX)
         elif target_user in admins:
             print(f'That user is already an admin!')
-        else:   # invalid username
+        else:  # invalid username
             print(f'That user does not exist. Please try again.')
 
 

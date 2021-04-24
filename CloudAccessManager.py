@@ -14,7 +14,6 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-
 # What GDrive permissions we're requiring:
 SCOPES = ['https://www.googleapis.com/auth/drive']
 drive_service = None
@@ -63,6 +62,7 @@ cloud_filenames = {}
 symmetric_key_cloud = None
 symmetric_key_client = None
 
+
 # Todo: need to stop files that are already on cloud being overwritten i.e. halt if file with same name on cloud
 # Todo: add warning on download that file in local directory will be overwritten if applicable
 
@@ -98,58 +98,94 @@ def main():
     conn = listener.accept()
     print(f'connection accepted from {listener.last_accepted}')
 
-    # receive messages from cloud group client
-    while True:
+    # client initiate comms with a plaintext HELLO exchange:
 
-        msg = decrypt_from_src(conn, symmetric_key_client, AS_STR)
-        print(msg)
-        if msg == HELLO:  # communication established
+    proceed = True
 
-            encrypt_and_send(conn, HELLO, symmetric_key_client)
+    msg = conn.recv()
+    if msg == HELLO:
 
-            close = False
+        # respond with plaintext hello
+        conn.send(HELLO)
 
-            while close is False:
-                req = decrypt_from_src(conn, symmetric_key_client, AS_STR)
-                if req == REQ_USER_LIST:
-                    send_user_list(conn)
-                elif req == REQ_REGISTER:
-                    process_registration(conn)
-                elif req == REQ_LOGIN:
-                    process_login(conn)
-                elif req == REQ_DOWNLOAD:
-                    process_download(conn)
-                elif req == REQ_CLOUD_FILES:
-                    send_file_list(conn)
-                elif req == REQ_UPLOAD:
-                    handle_upload(conn)
-                elif req == REQ_DEL_USER:
-                    handle_user_deletion(conn)
-                elif req == REQ_MK_ADMIN:
-                    handle_user_promotion(conn)
-                elif req == REQ_RM_ADMIN:
-                    handle_admin_demotion(conn)
-                elif req == REQ_DEL_FILE:
-                    handle_delete_file(conn)
-                elif req == REQ_CLOSE:
-                    # conn.send(OK)
-                    encrypt_and_send(conn, OK, symmetric_key_client)
-                    print(f'Closing connection ... ')
-                    close = True
+        # If first time communicating with client, exhange pub keys in plaintext
+        cur_dir = os.path.dirname(os.path.realpath(__file__))
+        path_to_client_pubkey = os.path.join(cur_dir, f'cam_files\\keys\\client_pubkey.pem')
 
-        conn.close()
-        break
+        if not os.path.exists(path_to_client_pubkey):
+            # receive public key
+            client_pubkey = conn.recv()
+            print(client_pubkey)
+
+            # store key
+            with open(path_to_client_pubkey, 'wb') as file:
+                file.write(client_pubkey)
+                file.close()
+
+            # respond with own pubkey
+            path_to_cam_pubkey = os.path.join(cur_dir, f'cam_files\\keys\\public_key.pem')
+
+            with open(path_to_cam_pubkey, 'rb') as file:
+                file_bytes = file.read()
+                print(file_bytes)
+                conn.send(file_bytes)
+    else:
+        conn.close()  # terminate connection
+
+    # # receive messages from cloud group client
+    # if proceed is True:
+    #     while True:
+    #
+    #         # keys exchanged, can now engage in encrypted comms
+    #         msg = decrypt_from_src(conn, symmetric_key_client, AS_STR)
+    #         print(msg)
+    #         if msg == HELLO:  # communication established
+    #
+    #             encrypt_and_send(conn, HELLO, symmetric_key_client)
+    #
+    #             close = False
+    #
+    #             while close is False:
+    #                 req = decrypt_from_src(conn, symmetric_key_client, AS_STR)
+    #                 if req == REQ_USER_LIST:
+    #                     send_user_list(conn)
+    #                 elif req == REQ_REGISTER:
+    #                     process_registration(conn)
+    #                 elif req == REQ_LOGIN:
+    #                     process_login(conn)
+    #                 elif req == REQ_DOWNLOAD:
+    #                     process_download(conn)
+    #                 elif req == REQ_CLOUD_FILES:
+    #                     send_file_list(conn)
+    #                 elif req == REQ_UPLOAD:
+    #                     handle_upload(conn)
+    #                 elif req == REQ_DEL_USER:
+    #                     handle_user_deletion(conn)
+    #                 elif req == REQ_MK_ADMIN:
+    #                     handle_user_promotion(conn)
+    #                 elif req == REQ_RM_ADMIN:
+    #                     handle_admin_demotion(conn)
+    #                 elif req == REQ_DEL_FILE:
+    #                     handle_delete_file(conn)
+    #                 elif req == REQ_CLOSE:
+    #                     # conn.send(OK)
+    #                     encrypt_and_send(conn, OK, symmetric_key_client)
+    #                     print(f'Closing connection ... ')
+    #                     close = True
+    #
+    #         conn.close()
+    #         break
 
     listener.close()
 
 
 def generate_asymm_keys():
 
-    print(f'Performing one-time key generation ... ')
     cur_dir = os.path.dirname(os.path.realpath(__file__))
     path_to_keys = os.path.join(cur_dir, f'cam_files\\keys')
 
     if not os.path.exists(path_to_keys):
+        print(f'Performing one-time key generation ... ')
         # make it
         os.mkdir(path_to_keys)
 
@@ -174,6 +210,7 @@ def generate_asymm_keys():
         save_loc = os.path.join(path_to_keys, 'public_key.pem')
         with open(save_loc, 'wb') as pem_file:
             pem_file.write(pem_pub)
+
 
 def perform_cloud_auth():
     # Load access token or creates one if DNE
@@ -455,6 +492,7 @@ def decrypt_from_src(conn, fernet_key, as_what):
     print(f'\tReceived {plaintext}; ciphertext: {ciphertext}')
     return plaintext
 
+
 def handle_delete_file(conn):
     global cloud_filenames
 
@@ -539,7 +577,6 @@ def perform_dir_setup():
     path_to_cam_files = os.path.join(cur_dir, f'cam_files')
 
     if not os.path.exists(path_to_cam_files):
-
         print(f'Creating CAM files ... ')
         os.mkdir(path_to_cam_files)
 
@@ -570,7 +607,7 @@ def handle_user_deletion(conn):
     elif username in user_usernames:
         user_usernames.remove(username)
         rel_path = os.path.join(USERS_PATH, f'{username}.txt')
-    else:   # user doesn't seem to exist :/
+    else:  # user doesn't seem to exist :/
         encrypt_and_send(conn, FAILURE)
 
     if rel_path is not None:
