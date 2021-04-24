@@ -1,5 +1,4 @@
 import os
-import time
 import re
 
 from multiprocessing.connection import Client
@@ -8,7 +7,7 @@ from shutil import rmtree
 
 from cryptography.fernet import Fernet
 from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives import serialization,hashes
+from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 
 USER_PRIVILEGE = 0
@@ -51,19 +50,14 @@ cloud_files = []
 public_key_cam = None
 private_key = None
 
-# todo remove
-symmetric_key_cam = None
-
 
 def main():
-    global users, admins, symmetric_key_cam, cloud_files, public_key_cam, private_key
+    global users, admins, cloud_files, public_key_cam, private_key
 
     # perform one-time setup of client_files and keys where applicable
     perform_initial_setup()
 
-    # load key for comms with CAM
-    # load_symm_key()
-
+    # connect to CAM
     address = ('localhost', 6000)
     conn = Client(address, authkey=b'cloud_group')
 
@@ -83,10 +77,27 @@ def main():
         # now load keys
         load_keys()
 
-        # recv test msg
-        msg = decrypt_from_src(conn, private_key)
-        encrypt_and_send(conn, f'Hello from CLIENT', public_key_cam)
+        # # recv test msg
+        # msg = decrypt_from_src(conn, private_key)
+        # encrypt_and_send(conn, f'Hello from CLIENT', public_key_cam)
 
+        # begin registration/login flow:
+        encrypt_and_send(conn, REQ_USER_LIST)
+        user_list_string = decrypt_from_src(conn, AS_STR)
+        users, admins = extract_usernames(user_list_string)
+        print(users)
+        print(admins)
+
+        # get filenames from cloud
+        encrypt_and_send(conn, REQ_CLOUD_FILES)
+        res = decrypt_from_src(conn, AS_STR)
+        cloud_files = res.split("|")
+        print(cloud_files)
+
+        prompt_for_login(users, admins, conn)
+
+        # ^ returns when user hits QUIT, so close connection with CAM and exit
+        encrypt_and_send(conn, REQ_CLOSE)
     else:
         raise Exception(PROTOCOL_EX)
 
@@ -281,8 +292,7 @@ def register_new_user(conn, exclusion_list):
             res = decrypt_from_src(conn, AS_STR)
             if res == SUCCESS:
                 validate_group_folder(username)
-                print(f'Registered user \'{username}\' successfully. To finish registration, please contact a '
-                      f'system administrator to obtain your key and proceed to log in.')
+                print(f'Registered user \'{username}\' successfully. Please proceed to log in.')
 
             return True
     else:
@@ -366,19 +376,6 @@ def get_password(username, path):
     return None
 
 
-def load_symm_key():
-    global symmetric_key_cam
-
-    cwd = os.getcwd()
-    path_to_key = f'{cwd}\\client_files\\fernet_client.key'
-
-    with open(path_to_key, 'rb') as key_file:
-        symmetric_key_cam = key_file.read()
-        key_file.close()
-
-    symmetric_key_cam = Fernet(symmetric_key_cam)
-
-
 def handle_user(conn, username):
     global cloud_files
 
@@ -409,24 +406,47 @@ def handle_user(conn, username):
                 print(f'Not a valid option.')
 
 
+# todo remove
+# def load_symm_key():
+#     global symmetric_key_cam
+#
+#     cwd = os.getcwd()
+#     path_to_key = f'{cwd}\\client_files\\fernet_client.key'
+#
+#     with open(path_to_key, 'rb') as key_file:
+#         symmetric_key_cam = key_file.read()
+#         key_file.close()
+#
+#     symmetric_key_cam = Fernet(symmetric_key_cam)
+
+
 def handle_download(conn, username):
     valid_option = True
 
     has_downloaded_smth = False
 
     while has_downloaded_smth is False:
+
         option = input(
-            f'Choose one of the following options:\n\t[L]: List the files currently available on the cloud\n\t[<filename.ext>]: Download a file\n\t[B]: Return to previous menu\n')
+            f'Choose one of the following options:'
+            f'\n\t[L]: List the files currently available on the cloud'
+            f'\n\t[<filename.ext>]: Download a file'
+            f'\n\t[B]: Return to previous menu\n')
+
         if option == 'l' or option == 'L':
 
             print(f'\nFiles available for download:')
             for file in cloud_files:
                 print(f' {file}')
             print()
+
         elif option == 'b' or option == 'B':
+
             valid_option = True
             break
+
         else:  # file request
+
             if option in cloud_files:
                 has_downloaded_smth = True
 
@@ -434,10 +454,11 @@ def handle_download(conn, username):
                 cur_dir = os.path.dirname(os.path.realpath(__file__))
                 path_to_dl = os.path.join(cur_dir, f'group_files\\{username}\\downloads\\{option}')
 
+                proceed = True
+
                 if os.path.exists(path_to_dl):  # i.e. already file in user's dl folder with same name
 
                     valid_option = False
-                    proceed = True
 
                     while valid_option is False:
                         option2 = input(f'Proceeding will overwrite local file \'{option}\' in your downloads folder. '
@@ -454,11 +475,13 @@ def handle_download(conn, username):
 
                 if proceed is True:
                     result = request_download(conn, option, username)
+
             else:
                 print(f'That file does not exist. Enter [L] to see a list of files available to download.')
 
 
 def handle_upload(conn, username):
+
     valid_filename = False
 
     while valid_filename is False:
@@ -726,7 +749,6 @@ def handle_user_promotion(conn):
 
 
 def handle_delete_user(conn):
-    # todo: remember to delete user record from local data structues
 
     global users, admins
 
@@ -778,13 +800,14 @@ def handle_delete_user(conn):
 #     conn.send(ciphertext)
 
 
-def encrypt_and_send(conn, msg, pub_key):
+def encrypt_and_send(conn, msg):
+    global public_key_cam
 
     # convert msg to bytes
     if isinstance(msg, str):
         msg = str.encode(msg)
 
-    ciphertext = pub_key.encrypt(
+    ciphertext = public_key_cam.encrypt(
         msg,
         padding.OAEP(
             mgf=padding.MGF1(algorithm=hashes.SHA256()),
@@ -795,7 +818,6 @@ def encrypt_and_send(conn, msg, pub_key):
 
     print(f'\tSending {msg}; ciphertext: {ciphertext}')
     conn.send(ciphertext)
-
 
 
 # gets the next msg from a connection object, decrypts using the key and returns the plaintext
@@ -811,10 +833,12 @@ def encrypt_and_send(conn, msg, pub_key):
 #     return plaintext
 
 
-def decrypt_from_src(conn, priv_key):
+def decrypt_from_src(conn, as_what):
+    global private_key
+
     ciphertext = conn.recv()
 
-    plaintext = priv_key.decrypt(
+    plaintext = private_key.decrypt(
         ciphertext,
         padding.OAEP(
             mgf=padding.MGF1(algorithm=hashes.SHA256()),
@@ -822,6 +846,10 @@ def decrypt_from_src(conn, priv_key):
             label=None
         )
     )
+
+    # cast as string if requested
+    if as_what == AS_STR:
+        plaintext = plaintext.decode("utf-8")
 
     print(f'\tReceived {plaintext}; ciphertext: {ciphertext}')
     return plaintext
@@ -851,7 +879,6 @@ def write_to_user_directory(file_bytes, username, filename):
     # files that are downloaded are written to group_files/<username>/downloads/
     cur_dir = os.path.dirname(os.path.realpath(__file__))
 
-    # @todo make dir if doesn't exist already
     path_to_user_dir = os.path.join(cur_dir, f'group_files\\{username}\\downloads')
     print(path_to_user_dir)
 

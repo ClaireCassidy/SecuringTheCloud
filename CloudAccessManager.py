@@ -64,12 +64,9 @@ symmetric_key_cloud = None
 public_key_client = None
 private_key = None
 
-# OBSOLETE
-symmetric_key_client = None
-
 
 def main():
-    global user_usernames, admin_usernames, symmetric_key_client, \
+    global user_usernames, admin_usernames, \
         symmetric_key_cloud, drive_service, cloud_filenames, public_key_client, private_key
 
     # authorise self to upload/download from associated GDrive account
@@ -82,8 +79,6 @@ def main():
 
     # get the Fernet key for communication between program and cloud
     symmetric_key_cloud = Fernet(load_key(CLOUD))
-    # get the Fernet key for communication between the program and client
-    symmetric_key_client = Fernet(load_key(CLIENT))
 
     # initialise list of usernames (one time file-read)
     user_usernames, admin_usernames = load_usernames(USERS_PATH, ADMINS_PATH)
@@ -110,7 +105,7 @@ def main():
         # respond with plaintext hello
         conn.send(HELLO)
 
-        # If first time communicating with client, exhange pub keys in plaintext
+        # If first time communicating with client, exchange pub keys in plaintext
         cur_dir = os.path.dirname(os.path.realpath(__file__))
         path_to_client_pubkey = os.path.join(cur_dir, f'cam_files\\keys\\client_pubkey.pem')
 
@@ -120,57 +115,54 @@ def main():
         # further comms will be encrypted, so load client's pub key
         load_client_pub_key()
 
-        # send test msg:
-        encrypt_and_send_asymm(conn, f'Hello from CAM!', public_key_client)
-        res = decrypt_from_src_asymm(conn, private_key)
-        print(f'Client says: \'{res}\'')
+        # # send test msg:
+        # encrypt_and_send(conn, f'Hello from CAM!', public_key_client)
+        # res = decrypt_from_src(conn, private_key)
+        # print(f'Client says: \'{res}\'')
 
     else:
+        proceed = False
         conn.close()  # terminate connection; protocol not being followed
 
-    # # receive messages from cloud group client
-    # if proceed is True:
-    #     while True:
-    #
-    #         # keys exchanged, can now engage in encrypted comms
-    #         msg = decrypt_from_src(conn, symmetric_key_client, AS_STR)
-    #         print(msg)
-    #         if msg == HELLO:  # communication established
-    #
-    #             encrypt_and_send(conn, HELLO, symmetric_key_client)
-    #
-    #             close = False
-    #
-    #             while close is False:
-    #                 req = decrypt_from_src(conn, symmetric_key_client, AS_STR)
-    #                 if req == REQ_USER_LIST:
-    #                     send_user_list(conn)
-    #                 elif req == REQ_REGISTER:
-    #                     process_registration(conn)
-    #                 elif req == REQ_LOGIN:
-    #                     process_login(conn)
-    #                 elif req == REQ_DOWNLOAD:
-    #                     process_download(conn)
-    #                 elif req == REQ_CLOUD_FILES:
-    #                     send_file_list(conn)
-    #                 elif req == REQ_UPLOAD:
-    #                     handle_upload(conn)
-    #                 elif req == REQ_DEL_USER:
-    #                     handle_user_deletion(conn)
-    #                 elif req == REQ_MK_ADMIN:
-    #                     handle_user_promotion(conn)
-    #                 elif req == REQ_RM_ADMIN:
-    #                     handle_admin_demotion(conn)
-    #                 elif req == REQ_DEL_FILE:
-    #                     handle_delete_file(conn)
-    #                 elif req == REQ_CLOSE:
-    #                     # conn.send(OK)
-    #                     encrypt_and_send(conn, OK, symmetric_key_client)
-    #                     print(f'Closing connection ... ')
-    #                     close = True
-    #
-    #         conn.close()
-    #         break
+    if proceed is True:
+
+        while True:  # repeatedly service requests from client until they close
+
+            # keys exchanged, can now engage in encrypted comms
+            close = False
+
+            while close is False:
+
+                req = decrypt_from_src(conn, AS_STR)
+
+                if req == REQ_USER_LIST:
+                    send_user_list(conn)
+                elif req == REQ_REGISTER:
+                    process_registration(conn)
+                elif req == REQ_LOGIN:
+                    process_login(conn)
+                elif req == REQ_DOWNLOAD:
+                    process_download(conn)
+                elif req == REQ_CLOUD_FILES:
+                    send_file_list(conn)
+                elif req == REQ_UPLOAD:
+                    handle_upload(conn)
+                elif req == REQ_DEL_USER:
+                    handle_user_deletion(conn)
+                elif req == REQ_MK_ADMIN:
+                    handle_user_promotion(conn)
+                elif req == REQ_RM_ADMIN:
+                    handle_admin_demotion(conn)
+                elif req == REQ_DEL_FILE:
+                    handle_delete_file(conn)
+                elif req == REQ_CLOSE:
+
+                    encrypt_and_send(conn, OK)
+                    print(f'Closing connection ... ')
+                    close = True
+
+            conn.close()
+            break
 
     listener.close()
 
@@ -361,13 +353,13 @@ def send_user_list(conn):
     encoded_list += "|"
     encoded_list += " ".join(admin_usernames)
     # conn.send(encoded_list)
-    encrypt_and_send(conn, encoded_list, symmetric_key_client)
+    encrypt_and_send(conn, encoded_list)
 
 
 def process_registration(conn):
-    encrypt_and_send(conn, OK, symmetric_key_client)
+    encrypt_and_send(conn, OK)
 
-    registration_details = decrypt_from_src(conn, symmetric_key_client, AS_STR)  # in form "username|password"
+    registration_details = decrypt_from_src(conn, AS_STR)  # in form "username|password"
     registration_details = registration_details.split("|")
     username = registration_details[0]
     password = registration_details[1]
@@ -390,15 +382,15 @@ def process_registration(conn):
     user_usernames.append(username)
 
     # conn.send(SUCCESS)
-    encrypt_and_send(conn, SUCCESS, symmetric_key_client)
+    encrypt_and_send(conn, SUCCESS)
     print(f'Successfully created registration record for \'{username}\'')
 
 
 def handle_user_promotion(conn):
     global user_usernames, admin_usernames
 
-    encrypt_and_send(conn, OK, symmetric_key_client)
-    username = decrypt_from_src(conn, symmetric_key_client, AS_STR)
+    encrypt_and_send(conn, OK)
+    username = decrypt_from_src(conn, AS_STR)
 
     cur_dir = os.path.dirname(os.path.realpath(__file__))
     # get cur path to user record:
@@ -414,14 +406,14 @@ def handle_user_promotion(conn):
     user_usernames.remove(username)
     admin_usernames.append(username)
 
-    encrypt_and_send(conn, SUCCESS, symmetric_key_client)
+    encrypt_and_send(conn, SUCCESS)
 
 
 def handle_admin_demotion(conn):
     global user_usernames, admin_usernames
 
-    encrypt_and_send(conn, OK, symmetric_key_client)
-    username = decrypt_from_src(conn, symmetric_key_client, AS_STR)
+    encrypt_and_send(conn, OK)
+    username = decrypt_from_src(conn, AS_STR)
 
     cur_dir = os.path.dirname(os.path.realpath(__file__))
     # get cur path to admin record:
@@ -437,14 +429,14 @@ def handle_admin_demotion(conn):
     admin_usernames.remove(username)
     user_usernames.append(username)
 
-    encrypt_and_send(conn, SUCCESS, symmetric_key_client)
+    encrypt_and_send(conn, SUCCESS)
 
 
 def process_login(conn):
     # acknowledge login request
-    encrypt_and_send(conn, OK, symmetric_key_client)
+    encrypt_and_send(conn, OK)
 
-    login_details = decrypt_from_src(conn, symmetric_key_client, AS_STR)  # in form '[username]|[password]'
+    login_details = decrypt_from_src(conn, AS_STR)  # in form '[username]|[password]'
     login_details = login_details.split("|")
     print(f'Login Details: {login_details}')
     username = login_details[0]
@@ -478,21 +470,21 @@ def process_login(conn):
 
         # if passed pw matches registration pw
         if password == true_password:
-            encrypt_and_send(conn, SUCCESS, symmetric_key_client)
+            encrypt_and_send(conn, SUCCESS)
         else:
-            encrypt_and_send(conn, FAILURE, symmetric_key_client)
+            encrypt_and_send(conn, FAILURE)
 
     else:
         # user dne
-        encrypt_and_send(conn, FAILURE, symmetric_key_client)
+        encrypt_and_send(conn, FAILURE)
 
 
 def process_download(conn):
     global cloud_filenames
 
-    encrypt_and_send(conn, OK, symmetric_key_client)
+    encrypt_and_send(conn, OK)
 
-    target_file = decrypt_from_src(conn, symmetric_key_client, AS_STR)
+    target_file = decrypt_from_src(conn, AS_STR)
     print(target_file)
     print(cloud_filenames)
 
@@ -510,30 +502,34 @@ def process_download(conn):
         # file bytes in file_handler; will have been encrypted with cloud symm key
         #   decrypt; re-encrypt with client symm key and send
         decrypted_bytes = symmetric_key_cloud.decrypt(file_handler.getvalue())
-        encrypt_and_send(conn, decrypted_bytes, symmetric_key_client)
+        encrypt_and_send(conn, decrypted_bytes)
 
     else:
-        encrypt_and_send(conn, FAILURE, symmetric_key_client)
+        encrypt_and_send(conn, FAILURE)
 
 
 # either encrypts a message given a fernet key and sends it using the given connection object
-# todo rename encrypt_and_send_symm
-def encrypt_and_send(conn, msg, fernet_key):
-    if isinstance(msg, str):
-        msg = str.encode(msg)
-    ciphertext = fernet_key.encrypt(msg)
-    print(f'\tSending {msg}; ciphertext: {ciphertext}')
-    conn.send(ciphertext)
+# def encrypt_and_send_symm(conn, msg):
+#     global symmetric_key_cloud
+#
+#     if isinstance(msg, str):
+#         msg = str.encode(msg)
+#
+#     ciphertext = symmetric_key_cloud.encrypt(msg)
+#
+#     print(f'\tSending {msg}; ciphertext: {ciphertext}')
+#     conn.send(ciphertext)
 
 
-def encrypt_and_send_asymm(conn, msg, pub_key):
+def encrypt_and_send(conn, msg):
+    global public_key_client
 
     # convert msg to bytes
     if isinstance(msg, str):
         msg = str.encode(msg)
 
     # encrypt with client's public key
-    ciphertext = pub_key.encrypt(
+    ciphertext = public_key_client.encrypt(
         msg,
         padding.OAEP(
             mgf=padding.MGF1(algorithm=hashes.SHA256()),
@@ -547,21 +543,26 @@ def encrypt_and_send_asymm(conn, msg, pub_key):
 
 
 # gets the next msg from a connection object, decrypts using the key and returns the plaintext
-def decrypt_from_src(conn, fernet_key, as_what):
-    ciphertext = conn.recv()
-    plaintext = fernet_key.decrypt(ciphertext)
-
-    if as_what == AS_STR:
-        plaintext = plaintext.decode("utf-8")
-
-    print(f'\tReceived {plaintext}; ciphertext: {ciphertext}')
-    return plaintext
+# def decrypt_from_src_symm(conn, as_what):
+#     global symmetric_key_cloud
+#
+#     ciphertext = conn.recv()
+#     plaintext = symmetric_key_cloud.decrypt(ciphertext)
+#
+#     if as_what == AS_STR:
+#         plaintext = plaintext.decode("utf-8")
+#
+#     print(f'\tReceived {plaintext}; ciphertext: {ciphertext}')
+#     return plaintext
 
 
 # decrypts a message from the client encrypted using CAM's pub key by using the CAM's private key
-def decrypt_from_src_asymm(conn, priv_key):
+def decrypt_from_src(conn, as_what):
+    global private_key
+
     ciphertext = conn.recv()
-    plaintext = priv_key.decrypt(
+
+    plaintext = private_key.decrypt(
         ciphertext,
         padding.OAEP(
             mgf=padding.MGF1(algorithm=hashes.SHA256()),
@@ -570,6 +571,10 @@ def decrypt_from_src_asymm(conn, priv_key):
         )
     )
 
+    # cast as string if requested
+    if as_what == AS_STR:
+        plaintext = plaintext.decode("utf-8")
+
     print(f'\tReceived {plaintext}; ciphertext: {ciphertext}')
     return plaintext
 
@@ -577,8 +582,8 @@ def decrypt_from_src_asymm(conn, priv_key):
 def handle_delete_file(conn):
     global cloud_filenames
 
-    encrypt_and_send(conn, OK, symmetric_key_client)
-    target_file = decrypt_from_src(conn, symmetric_key_client, AS_STR)
+    encrypt_and_send(conn, OK)
+    target_file = decrypt_from_src(conn, AS_STR)
 
     # get associated GDrive id:
     file_id = cloud_filenames[target_file]
@@ -596,9 +601,9 @@ def handle_delete_file(conn):
         cloud_filenames.pop(target_file)
 
         # report success to client
-        encrypt_and_send(conn, SUCCESS, symmetric_key_client)
+        encrypt_and_send(conn, SUCCESS)
     else:
-        encrypt_and_send(conn, FAILURE, symmetric_key_client)
+        encrypt_and_send(conn, FAILURE)
 
 
 def send_file_list(conn):
@@ -607,18 +612,18 @@ def send_file_list(conn):
     encoded_file_list = "|".join(cloud_filenames.keys())
     print(encoded_file_list)
 
-    encrypt_and_send(conn, encoded_file_list, symmetric_key_client)
+    encrypt_and_send(conn, encoded_file_list)
 
 
 def handle_upload(conn):
     global drive_service
 
-    encrypt_and_send(conn, OK, symmetric_key_client)
+    encrypt_and_send(conn, OK)
 
     # response will be filename followed by filebytes
-    file_name = decrypt_from_src(conn, symmetric_key_client, AS_STR)
-    encrypt_and_send(conn, OK, symmetric_key_client)
-    file_bytes = decrypt_from_src(conn, symmetric_key_client, AS_BYTES)
+    file_name = decrypt_from_src(conn, AS_STR)
+    encrypt_and_send(conn, OK)
+    file_bytes = decrypt_from_src(conn, AS_BYTES)
     print(file_bytes)
 
     # encrypt the file using CAM's cloud symm key
@@ -650,7 +655,7 @@ def handle_upload(conn):
     os.remove(rel_path)
 
     # tell client it was successful
-    encrypt_and_send(conn, SUCCESS, symmetric_key_client)
+    encrypt_and_send(conn, SUCCESS)
 
 
 def perform_dir_setup():
@@ -675,10 +680,9 @@ def perform_dir_setup():
 
 
 def handle_user_deletion(conn):
-    # todo: remember to delete user record from local data structues
-    encrypt_and_send(conn, OK, symmetric_key_client)
+    encrypt_and_send(conn, OK)
 
-    username = decrypt_from_src(conn, symmetric_key_client, AS_STR)
+    username = decrypt_from_src(conn, AS_STR)
 
     rel_path = None
     if username in admin_usernames:
@@ -699,7 +703,7 @@ def handle_user_deletion(conn):
 
         os.remove(target_file)
 
-        encrypt_and_send(conn, SUCCESS, symmetric_key_client)
+        encrypt_and_send(conn, SUCCESS)
 
 
 if __name__ == '__main__':
