@@ -1,4 +1,5 @@
 # SecuringTheCloud
+_Demonstration of applied public and private key encryption, using Python and the cryptography library Fernet_
 
 ## Overview
 
